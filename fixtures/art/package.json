@@ -8,7 +8,7 @@
     "react": "link:../../build/node_modules/react",
     "react-art": "link:../../build/node_modules/react-art/",
     "react-dom": "link:../../build/node_modules/react-dom",
-    "webpack": "^1.14.0"
+    "webpack": "^5.94.0"
   },
   "scripts": {
     "build": "webpack app.js bundle.js"
