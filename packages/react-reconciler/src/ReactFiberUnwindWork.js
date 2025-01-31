@@ -14,12 +14,11 @@ import type {SuspenseState} from './ReactFiberSuspenseComponent';
 import type {Cache} from './ReactFiberCacheComponent';
 import type {TracingMarkerInstance} from './ReactFiberTracingMarkerComponent';
 
-import {resetWorkInProgressVersions as resetMutableSourceWorkInProgressVersions} from './ReactMutableSource';
 import {
   ClassComponent,
   HostRoot,
   HostComponent,
-  HostResource,
+  HostHoistable,
   HostSingleton,
   HostPortal,
   ContextProvider,
@@ -34,8 +33,8 @@ import {DidCapture, NoFlags, ShouldCapture} from './ReactFiberFlags';
 import {NoMode, ProfileMode} from './ReactTypeOfMode';
 import {
   enableProfilerTimer,
-  enableCache,
   enableTransitionTracing,
+  enableRenderableContext,
 } from 'shared/ReactFeatureFlags';
 
 import {popHostContainer, popHostContext} from './ReactFiberHostContext';
@@ -91,10 +90,8 @@ function unwindWork(
     }
     case HostRoot: {
       const root: FiberRoot = workInProgress.stateNode;
-      if (enableCache) {
-        const cache: Cache = workInProgress.memoizedState.cache;
-        popCacheProvider(workInProgress, cache);
-      }
+      const cache: Cache = workInProgress.memoizedState.cache;
+      popCacheProvider(workInProgress, cache);
 
       if (enableTransitionTracing) {
         popRootMarkerInstance(workInProgress);
@@ -103,7 +100,6 @@ function unwindWork(
       popRootTransition(workInProgress, root, renderLanes);
       popHostContainer(workInProgress);
       popTopLevelLegacyContextObject(workInProgress);
-      resetMutableSourceWorkInProgressVersions();
       const flags = workInProgress.flags;
       if (
         (flags & ShouldCapture) !== NoFlags &&
@@ -117,7 +113,7 @@ function unwindWork(
       // We unwound to the root without completing it. Exit.
       return null;
     }
-    case HostResource:
+    case HostHoistable:
     case HostSingleton:
     case HostComponent: {
       // TODO: popHydrationState
@@ -162,7 +158,12 @@ function unwindWork(
       popHostContainer(workInProgress);
       return null;
     case ContextProvider:
-      const context: ReactContext<any> = workInProgress.type._context;
+      let context: ReactContext<any>;
+      if (enableRenderableContext) {
+        context = workInProgress.type;
+      } else {
+        context = workInProgress.type._context;
+      }
       popProvider(context, workInProgress);
       return null;
     case OffscreenComponent:
@@ -185,10 +186,8 @@ function unwindWork(
       return null;
     }
     case CacheComponent:
-      if (enableCache) {
-        const cache: Cache = workInProgress.memoizedState.cache;
-        popCacheProvider(workInProgress, cache);
-      }
+      const cache: Cache = workInProgress.memoizedState.cache;
+      popCacheProvider(workInProgress, cache);
       return null;
     case TracingMarkerComponent:
       if (enableTransitionTracing) {
@@ -222,10 +221,8 @@ function unwindInterruptedWork(
     }
     case HostRoot: {
       const root: FiberRoot = interruptedWork.stateNode;
-      if (enableCache) {
-        const cache: Cache = interruptedWork.memoizedState.cache;
-        popCacheProvider(interruptedWork, cache);
-      }
+      const cache: Cache = interruptedWork.memoizedState.cache;
+      popCacheProvider(interruptedWork, cache);
 
       if (enableTransitionTracing) {
         popRootMarkerInstance(interruptedWork);
@@ -234,10 +231,9 @@ function unwindInterruptedWork(
       popRootTransition(interruptedWork, root, renderLanes);
       popHostContainer(interruptedWork);
       popTopLevelLegacyContextObject(interruptedWork);
-      resetMutableSourceWorkInProgressVersions();
       break;
     }
-    case HostResource:
+    case HostHoistable:
     case HostSingleton:
     case HostComponent: {
       popHostContext(interruptedWork);
@@ -253,7 +249,12 @@ function unwindInterruptedWork(
       popSuspenseListContext(interruptedWork);
       break;
     case ContextProvider:
-      const context: ReactContext<any> = interruptedWork.type._context;
+      let context: ReactContext<any>;
+      if (enableRenderableContext) {
+        context = interruptedWork.type;
+      } else {
+        context = interruptedWork.type._context;
+      }
       popProvider(context, interruptedWork);
       break;
     case OffscreenComponent:
@@ -263,10 +264,8 @@ function unwindInterruptedWork(
       popTransition(interruptedWork, current);
       break;
     case CacheComponent:
-      if (enableCache) {
-        const cache: Cache = interruptedWork.memoizedState.cache;
-        popCacheProvider(interruptedWork, cache);
-      }
+      const cache: Cache = interruptedWork.memoizedState.cache;
+      popCacheProvider(interruptedWork, cache);
       break;
     case TracingMarkerComponent:
       if (enableTransitionTracing) {

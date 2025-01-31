@@ -14,16 +14,20 @@
  * environment.
  */
 
-import type {ReactModel} from 'react-server/src/ReactFlightServer';
-import type {ServerContextJSONValue} from 'shared/ReactTypes';
+import type {ReactClientValue} from 'react-server/src/ReactFlightServer';
 
 import {saveModule} from 'react-noop-renderer/flight-modules';
 
 import ReactFlightServer from 'react-server/flight';
 
-type Destination = Array<string>;
+type Destination = Array<Uint8Array>;
+
+const textEncoder = new TextEncoder();
 
 const ReactNoopFlightServer = ReactFlightServer({
+  scheduleMicrotask(callback: () => void) {
+    callback();
+  },
   scheduleWork(callback: () => void) {
     callback();
   },
@@ -39,22 +43,22 @@ const ReactNoopFlightServer = ReactFlightServer({
   close(destination: Destination): void {},
   closeWithError(destination: Destination, error: mixed): void {},
   flushBuffered(destination: Destination): void {},
-  stringToChunk(content: string): string {
-    return content;
+  stringToChunk(content: string): Uint8Array {
+    return textEncoder.encode(content);
   },
-  stringToPrecomputedChunk(content: string): string {
-    return content;
+  stringToPrecomputedChunk(content: string): Uint8Array {
+    return textEncoder.encode(content);
   },
-  clonePrecomputedChunk(chunk: string): string {
-    return chunk;
+  isClientReference(reference: Object): boolean {
+    return reference.$$typeof === Symbol.for('react.client.reference');
   },
-  isModuleReference(reference: Object): boolean {
-    return reference.$$typeof === Symbol.for('react.module.reference');
+  isServerReference(reference: Object): boolean {
+    return reference.$$typeof === Symbol.for('react.server.reference');
   },
-  getModuleKey(reference: Object): Object {
+  getClientReferenceKey(reference: Object): Object {
     return reference;
   },
-  resolveModuleMetaData(
+  resolveClientReferenceMetadata(
     config: void,
     reference: {$$typeof: symbol, value: any},
   ) {
@@ -63,20 +67,25 @@ const ReactNoopFlightServer = ReactFlightServer({
 });
 
 type Options = {
-  onError?: (error: mixed) => void,
-  context?: Array<[string, ServerContextJSONValue]>,
+  environmentName?: string | (() => string),
+  filterStackFrame?: (url: string, functionName: string) => boolean,
   identifierPrefix?: string,
+  onError?: (error: mixed) => void,
+  onPostpone?: (reason: string) => void,
 };
 
-function render(model: ReactModel, options?: Options): Destination {
+function render(model: ReactClientValue, options?: Options): Destination {
   const destination: Destination = [];
   const bundlerConfig = undefined;
   const request = ReactNoopFlightServer.createRequest(
     model,
     bundlerConfig,
     options ? options.onError : undefined,
-    options ? options.context : undefined,
     options ? options.identifierPrefix : undefined,
+    options ? options.onPostpone : undefined,
+    undefined,
+    __DEV__ && options ? options.environmentName : undefined,
+    __DEV__ && options ? options.filterStackFrame : undefined,
   );
   ReactNoopFlightServer.startWork(request);
   ReactNoopFlightServer.startFlowing(request, destination);

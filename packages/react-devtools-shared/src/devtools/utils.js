@@ -9,7 +9,7 @@
 
 import JSON5 from 'json5';
 
-import type {Element} from './views/Components/types';
+import type {Element} from 'react-devtools-shared/src/frontend/types';
 import type {StateContext} from './views/Components/TreeContext';
 import type Store from './store';
 
@@ -40,8 +40,9 @@ export function printElement(
     suffix = ` (${element.isCollapsed ? 1 : element.weight})`;
   }
 
-  return `${'  '.repeat(element.depth + 1)}${prefix} <${element.displayName ||
-    'null'}${key}>${hocs}${suffix}`;
+  return `${'  '.repeat(element.depth + 1)}${prefix} <${
+    element.displayName || 'null'
+  }${key}>${hocs}${suffix}`;
 }
 
 export function printOwnersList(
@@ -66,14 +67,12 @@ export function printStore(
     if (state === null) {
       return '';
     }
-    return state.selectedElementIndex === index ? `→` : ' ';
+    return state.inspectedElementIndex === index ? `→` : ' ';
   }
 
   function printErrorsAndWarnings(element: Element): string {
-    const {
-      errorCount,
-      warningCount,
-    } = store.getErrorAndWarningCountForElementID(element.id);
+    const {errorCount, warningCount} =
+      store.getErrorAndWarningCountForElementID(element.id);
     if (errorCount === 0 && warningCount === 0) {
       return '';
     }
@@ -156,7 +155,7 @@ export function sanitizeForParse(value: any): any | string {
       value.charAt(0) === "'" &&
       value.charAt(value.length - 1) === "'"
     ) {
-      return '"' + value.substr(1, value.length - 2) + '"';
+      return '"' + value.slice(1, value.length - 1) + '"';
     }
   }
   return value;

@@ -9,16 +9,17 @@
 
 import type {ReactNodeList, Wakeable} from 'shared/ReactTypes';
 import type {Fiber} from './ReactInternalTypes';
-import type {SuspenseInstance} from './ReactFiberHostConfig';
+import type {SuspenseInstance} from './ReactFiberConfig';
 import type {Lane} from './ReactFiberLane';
 import type {TreeContext} from './ReactFiberTreeContext';
+import type {CapturedValue} from './ReactCapturedValue';
 
 import {SuspenseComponent, SuspenseListComponent} from './ReactWorkTags';
 import {NoFlags, DidCapture} from './ReactFiberFlags';
 import {
   isSuspenseInstancePending,
   isSuspenseInstanceFallback,
-} from './ReactFiberHostConfig';
+} from './ReactFiberConfig';
 
 export type SuspenseProps = {
   children?: ReactNodeList,
@@ -49,6 +50,8 @@ export type SuspenseState = {
   // OffscreenLane is the default for dehydrated boundaries.
   // NoLane is the default for normal boundaries, which turns into "normal" pri.
   retryLane: Lane,
+  // Stashed Errors that happened while attempting to hydrate this boundary.
+  hydrationErrors: Array<CapturedValue<mixed>> | null,
 };
 
 export type SuspenseListTailMode = 'collapsed' | 'hidden' | void;
@@ -66,6 +69,8 @@ export type SuspenseListRenderState = {
   // Tail insertions setting.
   tailMode: SuspenseListTailMode,
 };
+
+export type RetryQueue = Set<Wakeable>;
 
 export function findFirstSuspended(row: Fiber): null | Fiber {
   let node = row;

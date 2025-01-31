@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  *
  * @emails react-core
+ * @jest-environment ./scripts/jest/ReactDOMServerIntegrationEnvironment
  */
 
 /* eslint-disable no-func-assign */
@@ -14,9 +15,8 @@
 const ReactDOMServerIntegrationUtils = require('./utils/ReactDOMServerIntegrationTestUtils');
 
 let React;
-let ReactDOM;
+let ReactDOMClient;
 let ReactDOMServer;
-let ReactTestUtils;
 let useState;
 let useReducer;
 let useEffect;
@@ -27,20 +27,20 @@ let useRef;
 let useImperativeHandle;
 let useInsertionEffect;
 let useLayoutEffect;
+let useResourceEffect;
 let useDebugValue;
 let forwardRef;
 let yieldedValues;
 let yieldValue;
-let clearYields;
+let clearLog;
 
 function initModules() {
   // Reset warning cache.
-  jest.resetModuleRegistry();
+  jest.resetModules();
 
   React = require('react');
-  ReactDOM = require('react-dom');
+  ReactDOMClient = require('react-dom/client');
   ReactDOMServer = require('react-dom/server');
-  ReactTestUtils = require('react-dom/test-utils');
   useState = React.useState;
   useReducer = React.useReducer;
   useEffect = React.useEffect;
@@ -52,13 +52,14 @@ function initModules() {
   useImperativeHandle = React.useImperativeHandle;
   useInsertionEffect = React.useInsertionEffect;
   useLayoutEffect = React.useLayoutEffect;
+  useResourceEffect = React.experimental_useResourceEffect;
   forwardRef = React.forwardRef;
 
   yieldedValues = [];
   yieldValue = value => {
     yieldedValues.push(value);
   };
-  clearYields = () => {
+  clearLog = () => {
     const ret = yieldedValues;
     yieldedValues = [];
     return ret;
@@ -66,9 +67,8 @@ function initModules() {
 
   // Make them available to the helpers.
   return {
-    ReactDOM,
+    ReactDOMClient,
     ReactDOMServer,
-    ReactTestUtils,
   };
 }
 
@@ -76,6 +76,7 @@ const {
   resetModules,
   itRenders,
   itThrowsWhenRendering,
+  clientRenderOnBadMarkup,
   serverRender,
 } = ReactDOMServerIntegrationUtils(initModules);
 
@@ -151,7 +152,7 @@ describe('ReactDOMServerHooks', () => {
         '1. You might have mismatching versions of React and the renderer (such as React DOM)\n' +
         '2. You might be breaking the Rules of Hooks\n' +
         '3. You might have more than one copy of React in the same app\n' +
-        'See https://reactjs.org/link/invalid-hook-call for tips about how to debug and fix this problem.',
+        'See https://react.dev/link/invalid-hook-call for tips about how to debug and fix this problem.',
     );
 
     itRenders('multiple times when an updater is called', async render => {
@@ -210,7 +211,7 @@ describe('ReactDOMServerHooks', () => {
 
       const domNode = await render(<Counter />);
 
-      expect(clearYields()).toEqual(['Render: 0', 0]);
+      expect(clearLog()).toEqual(['Render: 0', 0]);
       expect(domNode.tagName).toEqual('SPAN');
       expect(domNode.textContent).toEqual('0');
     });
@@ -227,7 +228,7 @@ describe('ReactDOMServerHooks', () => {
 
       const domNode = await render(<Counter />);
 
-      expect(clearYields()).toEqual(['Render: 1', 1]);
+      expect(clearLog()).toEqual(['Render: 1', 1]);
       expect(domNode.tagName).toEqual('SPAN');
       expect(domNode.textContent).toEqual('1');
     });
@@ -249,7 +250,7 @@ describe('ReactDOMServerHooks', () => {
 
         const domNode = await render(<Counter />);
 
-        expect(clearYields()).toEqual([
+        expect(clearLog()).toEqual([
           'Render: 0',
           'Render: 1',
           'Render: 2',
@@ -302,7 +303,7 @@ describe('ReactDOMServerHooks', () => {
 
         const domNode = await render(<Counter />);
 
-        expect(clearYields()).toEqual([
+        expect(clearLog()).toEqual([
           // The count should increase by alternating amounts of 10 and 1
           // until we reach 21.
           'Render: 0',
@@ -329,7 +330,7 @@ describe('ReactDOMServerHooks', () => {
       }
 
       const domNode = await render(<CapitalizedText text="hello" />);
-      expect(clearYields()).toEqual(["Capitalize 'hello'", 'HELLO']);
+      expect(clearLog()).toEqual(["Capitalize 'hello'", 'HELLO']);
       expect(domNode.tagName).toEqual('SPAN');
       expect(domNode.textContent).toEqual('HELLO');
     });
@@ -346,7 +347,7 @@ describe('ReactDOMServerHooks', () => {
       }
 
       const domNode = await render(<LazyCompute compute={computeA} />);
-      expect(clearYields()).toEqual(['compute A', 'A']);
+      expect(clearLog()).toEqual(['compute A', 'A']);
       expect(domNode.tagName).toEqual('SPAN');
       expect(domNode.textContent).toEqual('A');
     });
@@ -368,7 +369,7 @@ describe('ReactDOMServerHooks', () => {
         }
 
         const domNode = await render(<CapitalizedText text="hello" />);
-        expect(clearYields()).toEqual([
+        expect(clearLog()).toEqual([
           "Capitalize 'hello'",
           "Capitalize 'hello, world.'",
           'HELLO, WORLD.',
@@ -402,7 +403,7 @@ describe('ReactDOMServerHooks', () => {
         }
 
         const domNode = await render(<CapitalizedText text="hello" />);
-        expect(clearYields()).toEqual([
+        expect(clearLog()).toEqual([
           "Capitalize 'hello'",
           0,
           1,
@@ -425,8 +426,13 @@ describe('ReactDOMServerHooks', () => {
         });
         return 'hi';
       }
-
-      const domNode = await render(<App />, 1);
+      const domNode = await render(
+        <App />,
+        render === clientRenderOnBadMarkup
+          ? // On hydration mismatch we retry and therefore log the warning again.
+            2
+          : 1,
+      );
       expect(domNode.textContent).toEqual('hi');
     });
 
@@ -439,7 +445,13 @@ describe('ReactDOMServerHooks', () => {
         return value;
       }
 
-      const domNode = await render(<App />, 1);
+      const domNode = await render(
+        <App />,
+        render === clientRenderOnBadMarkup
+          ? // On hydration mismatch we retry and therefore log the warning again.
+            2
+          : 1,
+      );
       expect(domNode.textContent).toEqual('0');
     });
   });
@@ -473,7 +485,7 @@ describe('ReactDOMServerHooks', () => {
         }
 
         const domNode = await render(<Counter />);
-        expect(clearYields()).toEqual([0, 1, 2, 3]);
+        expect(clearLog()).toEqual([0, 1, 2, 3]);
         expect(domNode.textContent).toEqual('Count: 3');
       },
     );
@@ -503,7 +515,7 @@ describe('ReactDOMServerHooks', () => {
         }
 
         const domNode = await render(<Counter />);
-        expect(clearYields()).toEqual([0, 1, 2, 3]);
+        expect(clearLog()).toEqual([0, 1, 2, 3]);
         expect(domNode.textContent).toEqual('Count: 3');
       },
     );
@@ -520,7 +532,7 @@ describe('ReactDOMServerHooks', () => {
       }
 
       const domNode = await render(<Counter count={0} />);
-      yields.push(clearYields());
+      yields.push(clearLog());
       expect(domNode.tagName).toEqual('SPAN');
       expect(domNode.textContent).toEqual('Count: 0');
     });
@@ -545,7 +557,7 @@ describe('ReactDOMServerHooks', () => {
         return <Text text={'Count: ' + props.count} />;
       }
       const domNode = await render(<Counter count={0} />);
-      expect(clearYields()).toEqual(['Count: 0']);
+      expect(clearLog()).toEqual(['Count: 0']);
       expect(domNode.tagName).toEqual('SPAN');
       expect(domNode.textContent).toEqual('Count: 0');
     });
@@ -558,7 +570,7 @@ describe('ReactDOMServerHooks', () => {
         return <Text text={renderCount(3)} />;
       }
       const domNode = await render(<Counter count={2} />);
-      expect(clearYields()).toEqual(['Count: 5']);
+      expect(clearLog()).toEqual(['Count: 5']);
       expect(domNode.tagName).toEqual('SPAN');
       expect(domNode.textContent).toEqual('Count: 5');
     });
@@ -581,7 +593,7 @@ describe('ReactDOMServerHooks', () => {
         }
 
         const domNode = await render(<CapitalizedText text="hello" />);
-        const [first, second, third, fourth, result] = clearYields();
+        const [first, second, third, fourth, result] = clearLog();
         expect(first).toBe(second);
         expect(second).toBe(third);
         expect(third).not.toBe(fourth);
@@ -606,7 +618,7 @@ describe('ReactDOMServerHooks', () => {
       const domNode = await serverRender(
         <Counter label="Count" ref={counter} />,
       );
-      expect(clearYields()).toEqual(['Count: 0']);
+      expect(clearLog()).toEqual(['Count: 0']);
       expect(domNode.tagName).toEqual('SPAN');
       expect(domNode.textContent).toEqual('Count: 0');
     });
@@ -621,7 +633,7 @@ describe('ReactDOMServerHooks', () => {
         return <Text text="Count: 0" />;
       }
       const domNode = await serverRender(<Counter />, 1);
-      expect(clearYields()).toEqual(['Count: 0']);
+      expect(clearLog()).toEqual(['Count: 0']);
       expect(domNode.tagName).toEqual('SPAN');
       expect(domNode.textContent).toEqual('Count: 0');
     });
@@ -637,9 +649,55 @@ describe('ReactDOMServerHooks', () => {
         return <Text text="Count: 0" />;
       }
       const domNode = await serverRender(<Counter />, 1);
-      expect(clearYields()).toEqual(['Count: 0']);
+      expect(clearLog()).toEqual(['Count: 0']);
       expect(domNode.tagName).toEqual('SPAN');
       expect(domNode.textContent).toEqual('Count: 0');
+    });
+  });
+
+  describe('useResourceEffect', () => {
+    gate(flags => {
+      if (flags.enableUseResourceEffectHook) {
+        const yields = [];
+        itRenders(
+          'should ignore resource effects on the server',
+          async render => {
+            function Counter(props) {
+              useResourceEffect(
+                () => {
+                  yieldValue('created on client');
+                  return {resource_counter: props.count};
+                },
+                [props.count],
+                resource => {
+                  resource.resource_counter = props.count;
+                  yieldValue('updated on client');
+                },
+                [props.count],
+                () => {
+                  yieldValue('cleanup on client');
+                },
+              );
+              return <Text text={'Count: ' + props.count} />;
+            }
+
+            const domNode = await render(<Counter count={0} />);
+            yields.push(clearLog());
+            expect(domNode.tagName).toEqual('SPAN');
+            expect(domNode.textContent).toEqual('Count: 0');
+          },
+        );
+
+        it('verifies yields in order', () => {
+          expect(yields).toEqual([
+            ['Count: 0'], // server render
+            ['Count: 0'], // server stream
+            ['Count: 0', 'created on client'], // clean render
+            ['Count: 0', 'created on client'], // hydrated render
+            // nothing yielded for bad markup
+          ]);
+        });
+      }
     });
   });
 
@@ -662,7 +720,7 @@ describe('ReactDOMServerHooks', () => {
         '1. You might have mismatching versions of React and the renderer (such as React DOM)\n' +
         '2. You might be breaking the Rules of Hooks\n' +
         '3. You might have more than one copy of React in the same app\n' +
-        'See https://reactjs.org/link/invalid-hook-call for tips about how to debug and fix this problem.',
+        'See https://react.dev/link/invalid-hook-call for tips about how to debug and fix this problem.',
     );
   });
 
@@ -741,7 +799,7 @@ describe('ReactDOMServerHooks', () => {
       }
 
       const domNode = await render(<App foo={1} bar={3} baz={5} />);
-      expect(clearYields()).toEqual(['Foo: 1, Bar: 3', 'Baz: 5']);
+      expect(clearLog()).toEqual(['Foo: 1, Bar: 3', 'Baz: 5']);
       expect(domNode.childNodes.length).toBe(2);
       expect(domNode.firstChild.tagName).toEqual('SPAN');
       expect(domNode.firstChild.textContent).toEqual('Foo: 1, Bar: 3');
@@ -765,8 +823,7 @@ describe('ReactDOMServerHooks', () => {
   describe('readContext', () => {
     function readContext(Context) {
       const dispatcher =
-        React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED
-          .ReactCurrentDispatcher.current;
+        React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.H;
       return dispatcher.readContext(Context);
     }
 
@@ -837,7 +894,7 @@ describe('ReactDOMServerHooks', () => {
         }
 
         const domNode = await render(<App foo={1} bar={3} baz={5} />);
-        expect(clearYields()).toEqual(['Foo: 1, Bar: 3', 'Baz: 5']);
+        expect(clearLog()).toEqual(['Foo: 1, Bar: 3', 'Baz: 5']);
         expect(domNode.childNodes.length).toBe(2);
         expect(domNode.firstChild.tagName).toEqual('SPAN');
         expect(domNode.firstChild.textContent).toEqual('Foo: 1, Bar: 3');
@@ -862,7 +919,13 @@ describe('ReactDOMServerHooks', () => {
         return <Text text={count} />;
       }
 
-      const domNode1 = await render(<ReadInMemo />, 1);
+      const domNode1 = await render(
+        <ReadInMemo />,
+        render === clientRenderOnBadMarkup
+          ? // On hydration mismatch we retry and therefore log the warning again.
+            2
+          : 1,
+      );
       expect(domNode1.textContent).toEqual('42');
 
       const domNode2 = await render(<ReadInReducer />, 1);

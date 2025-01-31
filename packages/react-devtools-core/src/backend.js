@@ -13,16 +13,21 @@ import {installHook} from 'react-devtools-shared/src/hook';
 import {initBackend} from 'react-devtools-shared/src/backend';
 import {__DEBUG__} from 'react-devtools-shared/src/constants';
 import setupNativeStyleEditor from 'react-devtools-shared/src/backend/NativeStyleEditor/setupNativeStyleEditor';
-import {getDefaultComponentFilters} from 'react-devtools-shared/src/utils';
 import {
-  initializeUsingCachedSettings,
-  cacheConsolePatchSettings,
-  type DevToolsSettingsManager,
-} from './cachedSettings';
+  getDefaultComponentFilters,
+  getIsReloadAndProfileSupported,
+} from 'react-devtools-shared/src/utils';
 
 import type {BackendBridge} from 'react-devtools-shared/src/bridge';
-import type {ComponentFilter} from 'react-devtools-shared/src/types';
-import type {DevToolsHook} from 'react-devtools-shared/src/backend/types';
+import type {
+  ComponentFilter,
+  Wall,
+} from 'react-devtools-shared/src/frontend/types';
+import type {
+  DevToolsHook,
+  DevToolsHookSettings,
+  ProfilingSettings,
+} from 'react-devtools-shared/src/backend/types';
 import type {ResolveNativeStyle} from 'react-devtools-shared/src/backend/NativeStyleEditor/setupNativeStyleEditor';
 
 type ConnectOptions = {
@@ -34,15 +39,15 @@ type ConnectOptions = {
   retryConnectionDelay?: number,
   isAppActive?: () => boolean,
   websocket?: ?WebSocket,
-  devToolsSettingsManager: ?DevToolsSettingsManager,
-  ...
+  onSettingsUpdated?: (settings: $ReadOnly<DevToolsHookSettings>) => void,
+  isReloadAndProfileSupported?: boolean,
+  isProfiling?: boolean,
+  onReloadAndProfile?: (recordChangeDescriptions: boolean) => void,
+  onReloadAndProfileFlagsReset?: () => void,
 };
 
-installHook(window);
-
-const hook: ?DevToolsHook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
-
-let savedComponentFilters: Array<ComponentFilter> = getDefaultComponentFilters();
+let savedComponentFilters: Array<ComponentFilter> =
+  getDefaultComponentFilters();
 
 function debug(methodName: string, ...args: Array<mixed>) {
   if (__DEBUG__) {
@@ -55,21 +60,42 @@ function debug(methodName: string, ...args: Array<mixed>) {
   }
 }
 
+export function initialize(
+  maybeSettingsOrSettingsPromise?:
+    | DevToolsHookSettings
+    | Promise<DevToolsHookSettings>,
+  shouldStartProfilingNow: boolean = false,
+  profilingSettings?: ProfilingSettings,
+) {
+  installHook(
+    window,
+    maybeSettingsOrSettingsPromise,
+    shouldStartProfilingNow,
+    profilingSettings,
+  );
+}
+
 export function connectToDevTools(options: ?ConnectOptions) {
+  const hook: ?DevToolsHook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
   if (hook == null) {
     // DevTools didn't get injected into this page (maybe b'c of the contentType).
     return;
   }
+
   const {
     host = 'localhost',
     nativeStyleEditorValidAttributes,
     useHttps = false,
     port = 8097,
     websocket,
-    resolveRNStyle = null,
+    resolveRNStyle = (null: $FlowFixMe),
     retryConnectionDelay = 2000,
     isAppActive = () => true,
-    devToolsSettingsManager,
+    onSettingsUpdated,
+    isReloadAndProfileSupported = getIsReloadAndProfileSupported(),
+    isProfiling,
+    onReloadAndProfile,
+    onReloadAndProfileFlagsReset,
   } = options || {};
 
   const protocol = useHttps ? 'wss' : 'ws';
@@ -82,16 +108,6 @@ export function connectToDevTools(options: ?ConnectOptions) {
         () => connectToDevTools(options),
         retryConnectionDelay,
       );
-    }
-  }
-
-  if (devToolsSettingsManager != null) {
-    try {
-      initializeUsingCachedSettings(devToolsSettingsManager);
-    } catch (e) {
-      // If we call a method on devToolsSettingsManager that throws, or if
-      // is invalid data read out, don't throw and don't interrupt initialization
-      console.error(e);
     }
   }
 
@@ -114,7 +130,7 @@ export function connectToDevTools(options: ?ConnectOptions) {
   ws.onclose = handleClose;
   ws.onerror = handleFailed;
   ws.onmessage = handleMessage;
-  ws.onopen = function() {
+  ws.onopen = function () {
     bridge = new Bridge({
       listen(fn) {
         messageListeners.push(fn);
@@ -158,15 +174,6 @@ export function connectToDevTools(options: ?ConnectOptions) {
       },
     );
 
-    if (devToolsSettingsManager != null && bridge != null) {
-      bridge.addListener('updateConsolePatchSettings', consolePatchSettings =>
-        cacheConsolePatchSettings(
-          devToolsSettingsManager,
-          consolePatchSettings,
-        ),
-      );
-    }
-
     // The renderer interface doesn't read saved component filters directly,
     // because they are generally stored in localStorage within the context of the extension.
     // Because of this it relies on the extension to pass filters.
@@ -182,14 +189,25 @@ export function connectToDevTools(options: ?ConnectOptions) {
 
     // TODO (npm-packages) Warn if "isBackendStorageAPISupported"
     // $FlowFixMe[incompatible-call] found when upgrading Flow
-    const agent = new Agent(bridge);
+    const agent = new Agent(bridge, isProfiling, onReloadAndProfile);
+    if (typeof onReloadAndProfileFlagsReset === 'function') {
+      onReloadAndProfileFlagsReset();
+    }
+
+    if (onSettingsUpdated != null) {
+      agent.addListener('updateHookSettings', onSettingsUpdated);
+    }
     agent.addListener('shutdown', () => {
+      if (onSettingsUpdated != null) {
+        agent.removeListener('updateHookSettings', onSettingsUpdated);
+      }
+
       // If we received 'shutdown' from `agent`, we assume the `bridge` is already shutting down,
       // and that caused the 'shutdown' event on the `agent`, so we don't need to call `bridge.shutdown()` here.
       hook.emit('shutdown');
     });
 
-    initBackend(hook, agent, window);
+    initBackend(hook, agent, window, isReloadAndProfileSupported);
 
     // Setup React Native style editor if the environment supports it.
     if (resolveRNStyle != null || hook.resolveRNStyle != null) {
@@ -229,7 +247,7 @@ export function connectToDevTools(options: ?ConnectOptions) {
             get() {
               return lazyResolveRNStyle;
             },
-            set(value) {
+            set(value: $FlowFixMe) {
               lazyResolveRNStyle = value;
               initAfterTick();
             },
@@ -245,7 +263,7 @@ export function connectToDevTools(options: ?ConnectOptions) {
             get() {
               return lazyNativeStyleEditorValidAttributes;
             },
-            set(value) {
+            set(value: $FlowFixMe) {
               lazyNativeStyleEditorValidAttributes = value;
               initAfterTick();
             },
@@ -305,4 +323,104 @@ export function connectToDevTools(options: ?ConnectOptions) {
       }
     });
   }
+}
+
+type ConnectWithCustomMessagingOptions = {
+  onSubscribe: (cb: Function) => void,
+  onUnsubscribe: (cb: Function) => void,
+  onMessage: (event: string, payload: any) => void,
+  nativeStyleEditorValidAttributes?: $ReadOnlyArray<string>,
+  resolveRNStyle?: ResolveNativeStyle,
+  onSettingsUpdated?: (settings: $ReadOnly<DevToolsHookSettings>) => void,
+  isReloadAndProfileSupported?: boolean,
+  isProfiling?: boolean,
+  onReloadAndProfile?: (recordChangeDescriptions: boolean) => void,
+  onReloadAndProfileFlagsReset?: () => void,
+};
+
+export function connectWithCustomMessagingProtocol({
+  onSubscribe,
+  onUnsubscribe,
+  onMessage,
+  nativeStyleEditorValidAttributes,
+  resolveRNStyle,
+  onSettingsUpdated,
+  isReloadAndProfileSupported = getIsReloadAndProfileSupported(),
+  isProfiling,
+  onReloadAndProfile,
+  onReloadAndProfileFlagsReset,
+}: ConnectWithCustomMessagingOptions): Function {
+  const hook: ?DevToolsHook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+  if (hook == null) {
+    // DevTools didn't get injected into this page (maybe b'c of the contentType).
+    return;
+  }
+
+  const wall: Wall = {
+    listen(fn: Function) {
+      onSubscribe(fn);
+
+      return () => {
+        onUnsubscribe(fn);
+      };
+    },
+    send(event: string, payload: any) {
+      onMessage(event, payload);
+    },
+  };
+
+  const bridge: BackendBridge = new Bridge(wall);
+
+  bridge.addListener(
+    'updateComponentFilters',
+    (componentFilters: Array<ComponentFilter>) => {
+      // Save filter changes in memory, in case DevTools is reloaded.
+      // In that case, the renderer will already be using the updated values.
+      // We'll lose these in between backend reloads but that can't be helped.
+      savedComponentFilters = componentFilters;
+    },
+  );
+
+  if (window.__REACT_DEVTOOLS_COMPONENT_FILTERS__ == null) {
+    bridge.send('overrideComponentFilters', savedComponentFilters);
+  }
+
+  const agent = new Agent(bridge, isProfiling, onReloadAndProfile);
+  if (typeof onReloadAndProfileFlagsReset === 'function') {
+    onReloadAndProfileFlagsReset();
+  }
+
+  if (onSettingsUpdated != null) {
+    agent.addListener('updateHookSettings', onSettingsUpdated);
+  }
+  agent.addListener('shutdown', () => {
+    if (onSettingsUpdated != null) {
+      agent.removeListener('updateHookSettings', onSettingsUpdated);
+    }
+
+    // If we received 'shutdown' from `agent`, we assume the `bridge` is already shutting down,
+    // and that caused the 'shutdown' event on the `agent`, so we don't need to call `bridge.shutdown()` here.
+    hook.emit('shutdown');
+  });
+
+  const unsubscribeBackend = initBackend(
+    hook,
+    agent,
+    window,
+    isReloadAndProfileSupported,
+  );
+
+  const nativeStyleResolver: ResolveNativeStyle | void =
+    resolveRNStyle || hook.resolveRNStyle;
+
+  if (nativeStyleResolver != null) {
+    const validAttributes =
+      nativeStyleEditorValidAttributes ||
+      hook.nativeStyleEditorValidAttributes ||
+      null;
+
+    setupNativeStyleEditor(bridge, agent, nativeStyleResolver, validAttributes);
+  }
+
+  return unsubscribeBackend;
 }

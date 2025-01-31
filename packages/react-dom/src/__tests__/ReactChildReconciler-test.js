@@ -13,19 +13,22 @@
 'use strict';
 
 let React;
-let ReactTestUtils;
+let ReactDOMClient;
+let act;
+let assertConsoleErrorDev;
 
 describe('ReactChildReconciler', () => {
   beforeEach(() => {
     jest.resetModules();
 
     React = require('react');
-    ReactTestUtils = require('react-dom/test-utils');
+    ReactDOMClient = require('react-dom/client');
+    ({act, assertConsoleErrorDev} = require('internal-test-utils'));
   });
 
   function createIterable(array) {
     return {
-      '@@iterator': function() {
+      '@@iterator': function () {
         let i = 0;
         return {
           next() {
@@ -55,37 +58,55 @@ describe('ReactChildReconciler', () => {
     return fn;
   }
 
-  it('does not treat functions as iterables', () => {
-    let node;
+  it('does not treat functions as iterables', async () => {
     const iterableFunction = makeIterableFunction('foo');
 
-    expect(() => {
-      node = ReactTestUtils.renderIntoDocument(
+    const container = document.createElement('div');
+    const root = ReactDOMClient.createRoot(container);
+    await act(() => {
+      root.render(
         <div>
           <h1>{iterableFunction}</h1>
         </div>,
       );
-    }).toErrorDev('Functions are not valid as a React child');
+    });
+    assertConsoleErrorDev([
+      'Functions are not valid as a React child. ' +
+        'This may happen if you return fn instead of <fn /> from render. ' +
+        'Or maybe you meant to call this function rather than return it.\n' +
+        '  <h1>{fn}</h1>\n' +
+        '    in h1 (at **)' +
+        (gate('enableOwnerStacks') ? '' : '\n   in div (at **)'),
+    ]);
+    const node = container.firstChild;
 
     expect(node.innerHTML).toContain(''); // h1
   });
 
-  it('warns for duplicated array keys', () => {
+  it('warns for duplicated array keys', async () => {
     class Component extends React.Component {
       render() {
         return <div>{[<div key="1" />, <div key="1" />]}</div>;
       }
     }
 
-    expect(() => ReactTestUtils.renderIntoDocument(<Component />)).toErrorDev(
-      'Keys should be unique so that components maintain their identity ' +
-        'across updates. Non-unique keys may cause children to be ' +
-        'duplicated and/or omitted — the behavior is unsupported and ' +
-        'could change in a future version.',
-    );
+    const container = document.createElement('div');
+    const root = ReactDOMClient.createRoot(container);
+    await act(() => {
+      root.render(<Component />);
+    });
+    assertConsoleErrorDev([
+      'Encountered two children with the same key, `1`. ' +
+        'Keys should be unique so that components maintain their identity across updates. ' +
+        'Non-unique keys may cause children to be duplicated and/or omitted — ' +
+        'the behavior is unsupported and could change in a future version.\n' +
+        (gate('enableOwnerStacks') ? '' : '    in div (at **)\n') +
+        '    in div (at **)\n' +
+        '    in Component (at **)',
+    ]);
   });
 
-  it('warns for duplicated array keys with component stack info', () => {
+  it('warns for duplicated array keys with component stack info', async () => {
     class Component extends React.Component {
       render() {
         return <div>{[<div key="1" />, <div key="1" />]}</div>;
@@ -104,35 +125,52 @@ describe('ReactChildReconciler', () => {
       }
     }
 
-    expect(() => ReactTestUtils.renderIntoDocument(<GrandParent />)).toErrorDev(
+    const container = document.createElement('div');
+    const root = ReactDOMClient.createRoot(container);
+    await act(() => {
+      root.render(<GrandParent />);
+    });
+    assertConsoleErrorDev([
       'Encountered two children with the same key, `1`. ' +
         'Keys should be unique so that components maintain their identity ' +
         'across updates. Non-unique keys may cause children to be ' +
         'duplicated and/or omitted — the behavior is unsupported and ' +
         'could change in a future version.\n' +
         '    in div (at **)\n' +
+        (gate(flags => flags.enableOwnerStacks) ? '' : '    in div (at **)\n') +
         '    in Component (at **)\n' +
-        '    in Parent (at **)\n' +
+        (gate(flags => flags.enableOwnerStacks)
+          ? ''
+          : '    in Parent (at **)\n') +
         '    in GrandParent (at **)',
-    );
+    ]);
   });
 
-  it('warns for duplicated iterable keys', () => {
+  it('warns for duplicated iterable keys', async () => {
     class Component extends React.Component {
       render() {
         return <div>{createIterable([<div key="1" />, <div key="1" />])}</div>;
       }
     }
 
-    expect(() => ReactTestUtils.renderIntoDocument(<Component />)).toErrorDev(
-      'Keys should be unique so that components maintain their identity ' +
+    const container = document.createElement('div');
+    const root = ReactDOMClient.createRoot(container);
+    await act(() => {
+      root.render(<Component />);
+    });
+    assertConsoleErrorDev([
+      'Encountered two children with the same key, `1`. ' +
+        'Keys should be unique so that components maintain their identity ' +
         'across updates. Non-unique keys may cause children to be ' +
         'duplicated and/or omitted — the behavior is unsupported and ' +
-        'could change in a future version.',
-    );
+        'could change in a future version.\n' +
+        '    in div (at **)\n' +
+        (gate(flags => flags.enableOwnerStacks) ? '' : '    in div (at **)\n') +
+        '    in Component (at **)',
+    ]);
   });
 
-  it('warns for duplicated iterable keys with component stack info', () => {
+  it('warns for duplicated iterable keys with component stack info', async () => {
     class Component extends React.Component {
       render() {
         return <div>{createIterable([<div key="1" />, <div key="1" />])}</div>;
@@ -151,16 +189,24 @@ describe('ReactChildReconciler', () => {
       }
     }
 
-    expect(() => ReactTestUtils.renderIntoDocument(<GrandParent />)).toErrorDev(
+    const container = document.createElement('div');
+    const root = ReactDOMClient.createRoot(container);
+    await act(() => {
+      root.render(<GrandParent />);
+    });
+    assertConsoleErrorDev([
       'Encountered two children with the same key, `1`. ' +
         'Keys should be unique so that components maintain their identity ' +
         'across updates. Non-unique keys may cause children to be ' +
         'duplicated and/or omitted — the behavior is unsupported and ' +
         'could change in a future version.\n' +
         '    in div (at **)\n' +
+        (gate(flags => flags.enableOwnerStacks) ? '' : '    in div (at **)\n') +
         '    in Component (at **)\n' +
-        '    in Parent (at **)\n' +
+        (gate(flags => flags.enableOwnerStacks)
+          ? ''
+          : '    in Parent (at **)\n') +
         '    in GrandParent (at **)',
-    );
+    ]);
   });
 });

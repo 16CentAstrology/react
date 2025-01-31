@@ -10,11 +10,9 @@
 import type {Fiber} from './ReactInternalTypes';
 import type {StackCursor} from './ReactFiberStack';
 
-import {isFiberMounted} from './ReactFiberTreeReflection';
 import {disableLegacyContext} from 'shared/ReactFeatureFlags';
 import {ClassComponent, HostRoot} from './ReactWorkTags';
 import getComponentNameFromFiber from 'react-reconciler/src/getComponentNameFromFiber';
-import checkPropTypes from 'shared/checkPropTypes';
 
 import {createCursor, push, pop} from './ReactFiberStack';
 
@@ -30,9 +28,8 @@ if (__DEV__) {
 }
 
 // A cursor to the current merged context object on the stack.
-const contextStackCursor: StackCursor<Object> = createCursor(
-  emptyContextObject,
-);
+const contextStackCursor: StackCursor<Object> =
+  createCursor(emptyContextObject);
 // A cursor to a boolean indicating whether the context has changed.
 const didPerformWorkStackCursor: StackCursor<boolean> = createCursor(false);
 // Keep track of the previous context object that was on the stack.
@@ -100,11 +97,6 @@ function getMaskedContext(
     const context: {[string]: $FlowFixMe} = {};
     for (const key in contextTypes) {
       context[key] = unmaskedContext[key];
-    }
-
-    if (__DEV__) {
-      const name = getComponentNameFromFiber(workInProgress) || 'Unknown';
-      checkPropTypes(contextTypes, context, 'context', name);
     }
 
     // Cache unmasked context so we can avoid recreating masked context unless necessary.
@@ -207,14 +199,11 @@ function processChildContext(
     for (const contextKey in childContext) {
       if (!(contextKey in childContextTypes)) {
         throw new Error(
-          `${getComponentNameFromFiber(fiber) ||
-            'Unknown'}.getChildContext(): key "${contextKey}" is not defined in childContextTypes.`,
+          `${
+            getComponentNameFromFiber(fiber) || 'Unknown'
+          }.getChildContext(): key "${contextKey}" is not defined in childContextTypes.`,
         );
       }
-    }
-    if (__DEV__) {
-      const name = getComponentNameFromFiber(fiber) || 'Unknown';
-      checkPropTypes(childContextTypes, childContext, 'child context', name);
     }
 
     return {...parentContext, ...childContext};
@@ -295,13 +284,6 @@ function findCurrentUnmaskedContext(fiber: Fiber): Object {
   } else {
     // Currently this is only used with renderSubtreeIntoContainer; not sure if it
     // makes sense elsewhere
-    if (!isFiberMounted(fiber) || fiber.tag !== ClassComponent) {
-      throw new Error(
-        'Expected subtree parent to be a mounted class component. ' +
-          'This error is likely caused by a bug in React. Please file an issue.',
-      );
-    }
-
     let node: Fiber = fiber;
     do {
       switch (node.tag) {

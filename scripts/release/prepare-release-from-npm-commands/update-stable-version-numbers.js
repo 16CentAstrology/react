@@ -38,8 +38,8 @@ const run = async ({cwd, packages, version}, versionsMap) => {
           // We compare source packages to determine what the new scheduler dependency constraint should be.
           // To do this, we look at both the local version of the scheduler (e.g. 0.11.0),
           // and the dependency constraint in the local version of react-dom (e.g. scheduler@^0.11.0).
-          const sourceDependencyVersion = sourcePackageJSONs.get(dependencyName)
-            .version;
+          const sourceDependencyVersion =
+            sourcePackageJSONs.get(dependencyName).version;
           const sourceDependencyConstraint = sourceDependencies[dependencyName];
 
           // If the source dependency's version and the constraint match,
@@ -52,12 +52,11 @@ const run = async ({cwd, packages, version}, versionsMap) => {
             sourceDependencyVersion ===
             sourceDependencyConstraint.replace(/^[\^\~]/, '')
           ) {
-            targetDependencies[
-              dependencyName
-            ] = sourceDependencyConstraint.replace(
-              sourceDependencyVersion,
-              versionsMap.get(dependencyName)
-            );
+            targetDependencies[dependencyName] =
+              sourceDependencyConstraint.replace(
+                sourceDependencyVersion,
+                versionsMap.get(dependencyName)
+              );
           } else {
             targetDependencies[dependencyName] = sourceDependencyConstraint;
           }
@@ -112,62 +111,68 @@ const run = async ({cwd, packages, version}, versionsMap) => {
 
   clear();
 
-  // A separate "React version" is used for the embedded renderer version to support DevTools,
-  // since it needs to distinguish between different version ranges of React.
-  // We need to replace it as well as the "next" version number.
-  const buildInfoPath = join(nodeModulesPath, 'react', 'build-info.json');
-  const {reactVersion} = await readJson(buildInfoPath);
+  if (packages.includes('react')) {
+    // A separate "React version" is used for the embedded renderer version to support DevTools,
+    // since it needs to distinguish between different version ranges of React.
+    // We need to replace it as well as the "next" version number.
+    const buildInfoPath = join(nodeModulesPath, 'react', 'build-info.json');
+    const {reactVersion} = await readJson(buildInfoPath);
 
-  if (!reactVersion) {
-    console.error(
-      theme`{error Unsupported or invalid build metadata in} {path build/node_modules/react/build-info.json}` +
-        theme`{error . This could indicate that you have specified an outdated "next" version.}`
+    if (!reactVersion) {
+      console.error(
+        theme`{error Unsupported or invalid build metadata in} {path build/node_modules/react/build-info.json}` +
+          theme`{error . This could indicate that you have specified an outdated "next" version.}`
+      );
+      process.exit(1);
+    }
+
+    // We print the diff to the console for review,
+    // but it can be large so let's also write it to disk.
+    const diffPath = join(cwd, 'build', 'temp.diff');
+    let diff = '';
+    let numFilesModified = 0;
+
+    // Find-and-replace hardcoded version (in built JS) for renderers.
+    for (let i = 0; i < packages.length; i++) {
+      const packageName = packages[i];
+      const packagePath = join(nodeModulesPath, packageName);
+
+      let files = await execRead(
+        `find ${packagePath} -name '*.js' -exec echo {} \\;`,
+        {cwd}
+      );
+      files = files.split('\n');
+      files.forEach(path => {
+        const newStableVersion = versionsMap.get(packageName);
+        const beforeContents = readFileSync(path, 'utf8', {cwd});
+        let afterContents = beforeContents;
+        // Replace all "next" version numbers (e.g. header @license).
+        while (afterContents.indexOf(version) >= 0) {
+          afterContents = afterContents.replace(version, newStableVersion);
+        }
+        // Replace inline renderer version numbers (e.g. shared/ReactVersion).
+        while (afterContents.indexOf(reactVersion) >= 0) {
+          afterContents = afterContents.replace(reactVersion, newStableVersion);
+        }
+        if (beforeContents !== afterContents) {
+          numFilesModified++;
+          // Using a relative path for diff helps with the snapshot test
+          diff += printDiff(relative(cwd, path), beforeContents, afterContents);
+          writeFileSync(path, afterContents, {cwd});
+        }
+      });
+    }
+    writeFileSync(diffPath, diff, {cwd});
+    console.log(theme.header(`\n${numFilesModified} files have been updated.`));
+    console.log(
+      theme`A full diff is available at {path ${relative(cwd, diffPath)}}.`
     );
-    process.exit(1);
-  }
-
-  // We print the diff to the console for review,
-  // but it can be large so let's also write it to disk.
-  const diffPath = join(cwd, 'build', 'temp.diff');
-  let diff = '';
-  let numFilesModified = 0;
-
-  // Find-and-replace hardcoded version (in built JS) for renderers.
-  for (let i = 0; i < packages.length; i++) {
-    const packageName = packages[i];
-    const packagePath = join(nodeModulesPath, packageName);
-
-    let files = await execRead(
-      `find ${packagePath} -name '*.js' -exec echo {} \\;`,
-      {cwd}
+    await confirm('Do the changes above look correct?');
+  } else {
+    console.log(
+      theme`Skipping React renderer version update because React is not included in the release.`
     );
-    files = files.split('\n');
-    files.forEach(path => {
-      const newStableVersion = versionsMap.get(packageName);
-      const beforeContents = readFileSync(path, 'utf8', {cwd});
-      let afterContents = beforeContents;
-      // Replace all "next" version numbers (e.g. header @license).
-      while (afterContents.indexOf(version) >= 0) {
-        afterContents = afterContents.replace(version, newStableVersion);
-      }
-      // Replace inline renderer version numbers (e.g. shared/ReactVersion).
-      while (afterContents.indexOf(reactVersion) >= 0) {
-        afterContents = afterContents.replace(reactVersion, newStableVersion);
-      }
-      if (beforeContents !== afterContents) {
-        numFilesModified++;
-        // Using a relative path for diff helps with the snapshot test
-        diff += printDiff(relative(cwd, path), beforeContents, afterContents);
-        writeFileSync(path, afterContents, {cwd});
-      }
-    });
   }
-  writeFileSync(diffPath, diff, {cwd});
-  console.log(theme.header(`\n${numFilesModified} files have been updated.`));
-  console.log(
-    theme`A full diff is available at {path ${relative(cwd, diffPath)}}.`
-  );
-  await confirm('Do the changes above look correct?');
 
   clear();
 };

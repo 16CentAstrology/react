@@ -19,7 +19,7 @@ describe('ReactStrictMode', () => {
     React = require('react');
     ReactDOMClient = require('react-dom/client');
 
-    act = require('jest-react').act;
+    act = require('internal-test-utils').act;
   });
 
   describe('levels', () => {
@@ -45,8 +45,8 @@ describe('ReactStrictMode', () => {
       return null;
     }
 
-    it('should default to not strict', () => {
-      act(() => {
+    it('should default to not strict', async () => {
+      await act(() => {
         const container = document.createElement('div');
         const root = ReactDOMClient.createRoot(container);
         root.render(<Component label="A" />);
@@ -60,8 +60,8 @@ describe('ReactStrictMode', () => {
     });
 
     if (__DEV__) {
-      it('should support enabling strict mode via createRoot option', () => {
-        act(() => {
+      it('should support enabling strict mode via createRoot option', async () => {
+        await act(() => {
           const container = document.createElement('div');
           const root = ReactDOMClient.createRoot(container, {
             unstable_strictMode: true,
@@ -81,8 +81,8 @@ describe('ReactStrictMode', () => {
         ]);
       });
 
-      it('should include legacy + strict effects mode', () => {
-        act(() => {
+      it('should include legacy + strict effects mode', async () => {
+        await act(() => {
           const container = document.createElement('div');
           const root = ReactDOMClient.createRoot(container);
           root.render(
@@ -104,8 +104,54 @@ describe('ReactStrictMode', () => {
         ]);
       });
 
-      it('should allow level to be increased with nesting', () => {
-        act(() => {
+      // @gate enableDO_NOT_USE_disableStrictPassiveEffect
+      it('should include legacy + strict effects mode, but not strict passive effect with disableStrictPassiveEffect', async () => {
+        await act(() => {
+          const container = document.createElement('div');
+          const root = ReactDOMClient.createRoot(container);
+          root.render(
+            <React.StrictMode DO_NOT_USE_disableStrictPassiveEffect={true}>
+              <Component label="A" />
+            </React.StrictMode>,
+          );
+        });
+
+        expect(log).toEqual([
+          'A: render',
+          'A: render',
+          'A: useLayoutEffect mount',
+          'A: useEffect mount',
+          'A: useLayoutEffect unmount',
+          'A: useLayoutEffect mount',
+        ]);
+      });
+
+      // @gate enableDO_NOT_USE_disableStrictPassiveEffect
+      it('should include legacy + strict effects mode, but not strict passive effect with disableStrictPassiveEffect in Suspense', async () => {
+        await act(() => {
+          const container = document.createElement('div');
+          const root = ReactDOMClient.createRoot(container);
+          root.render(
+            <React.StrictMode DO_NOT_USE_disableStrictPassiveEffect={true}>
+              <React.Suspense>
+                <Component label="A" />
+              </React.Suspense>
+            </React.StrictMode>,
+          );
+        });
+
+        expect(log).toEqual([
+          'A: render',
+          'A: render',
+          'A: useLayoutEffect mount',
+          'A: useEffect mount',
+          'A: useLayoutEffect unmount',
+          'A: useLayoutEffect mount',
+        ]);
+      });
+
+      it('should allow level to be increased with nesting', async () => {
+        await act(() => {
           const container = document.createElement('div');
           const root = ReactDOMClient.createRoot(container);
           root.render(
@@ -131,6 +177,40 @@ describe('ReactStrictMode', () => {
           'B: useEffect unmount',
           'B: useLayoutEffect mount',
           'B: useEffect mount',
+        ]);
+      });
+
+      it('should support nested strict mode on initial mount', async () => {
+        function Wrapper({children}) {
+          return children;
+        }
+        await act(() => {
+          const container = document.createElement('div');
+          const root = ReactDOMClient.createRoot(container);
+          root.render(
+            <Wrapper>
+              <Component label="A" />
+              <React.StrictMode>
+                <Component label="B" />,
+              </React.StrictMode>
+              ,
+            </Wrapper>,
+          );
+        });
+
+        expect(log).toEqual([
+          'A: render',
+          'B: render',
+          'B: render',
+          'A: useLayoutEffect mount',
+          'B: useLayoutEffect mount',
+          'A: useEffect mount',
+          'B: useEffect mount',
+          // TODO: this is currently broken
+          // 'B: useLayoutEffect unmount',
+          // 'B: useEffect unmount',
+          // 'B: useLayoutEffect mount',
+          // 'B: useEffect mount',
         ]);
       });
     }

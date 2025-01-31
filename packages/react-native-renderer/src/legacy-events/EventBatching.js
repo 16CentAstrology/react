@@ -6,12 +6,10 @@
  * @flow
  */
 
-import {rethrowCaughtError} from 'shared/ReactErrorUtils';
-
 import type {ReactSyntheticEvent} from './ReactSyntheticEventType';
 import accumulateInto from './accumulateInto';
 import forEachAccumulated from './forEachAccumulated';
-import {executeDispatchesInOrder} from './EventPluginUtils';
+import {executeDispatchesInOrder, rethrowCaughtError} from './EventPluginUtils';
 
 /**
  * Internal queue of events that have accumulated their dispatches and are
@@ -25,7 +23,7 @@ let eventQueue: ?(Array<ReactSyntheticEvent> | ReactSyntheticEvent) = null;
  * @param {?object} event Synthetic event to be dispatched.
  * @private
  */
-const executeDispatchesAndRelease = function(event: ReactSyntheticEvent) {
+function executeDispatchesAndRelease(event: ReactSyntheticEvent) {
   if (event) {
     executeDispatchesInOrder(event);
 
@@ -33,11 +31,11 @@ const executeDispatchesAndRelease = function(event: ReactSyntheticEvent) {
       event.constructor.release(event);
     }
   }
-};
+}
 // $FlowFixMe[missing-local-annot]
-const executeDispatchesAndReleaseTopLevel = function(e) {
+function executeDispatchesAndReleaseTopLevel(e) {
   return executeDispatchesAndRelease(e);
-};
+}
 
 export function runEventsInBatch(
   events: Array<ReactSyntheticEvent> | ReactSyntheticEvent | null,

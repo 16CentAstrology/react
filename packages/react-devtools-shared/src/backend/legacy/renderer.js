@@ -13,14 +13,14 @@ import {
   ElementTypeRoot,
   ElementTypeHostComponent,
   ElementTypeOtherOrUnknown,
-} from 'react-devtools-shared/src/types';
+} from 'react-devtools-shared/src/frontend/types';
 import {getUID, utfEncodeString, printOperationsArray} from '../../utils';
 import {
   cleanForBridge,
-  copyToClipboard,
   copyWithDelete,
   copyWithRename,
   copyWithSet,
+  serializeToString,
 } from '../utils';
 import {
   deletePathInObject,
@@ -39,10 +39,10 @@ import {decorateMany, forceUpdate, restoreMany} from './utils';
 
 import type {
   DevToolsHook,
-  GetFiberIDForNative,
+  GetElementIDForHostInstance,
   InspectedElementPayload,
   InstanceAndStyle,
-  NativeType,
+  HostInstance,
   PathFrame,
   PathMatch,
   RendererInterface,
@@ -50,7 +50,7 @@ import type {
 import type {
   ComponentFilter,
   ElementType,
-} from 'react-devtools-shared/src/types';
+} from 'react-devtools-shared/src/frontend/types';
 import type {InspectedElement, SerializedElement} from '../types';
 
 export type InternalInstance = Object;
@@ -137,48 +137,49 @@ export function attach(
   global: Object,
 ): RendererInterface {
   const idToInternalInstanceMap: Map<number, InternalInstance> = new Map();
-  const internalInstanceToIDMap: WeakMap<
-    InternalInstance,
-    number,
-  > = new WeakMap();
-  const internalInstanceToRootIDMap: WeakMap<
-    InternalInstance,
-    number,
-  > = new WeakMap();
+  const internalInstanceToIDMap: WeakMap<InternalInstance, number> =
+    new WeakMap();
+  const internalInstanceToRootIDMap: WeakMap<InternalInstance, number> =
+    new WeakMap();
 
-  let getInternalIDForNative: GetFiberIDForNative = ((null: any): GetFiberIDForNative);
-  let findNativeNodeForInternalID: (id: number) => ?NativeType;
-  let getFiberForNative = (node: NativeType) => {
+  let getElementIDForHostInstance: GetElementIDForHostInstance =
+    ((null: any): GetElementIDForHostInstance);
+  let findHostInstanceForInternalID: (id: number) => ?HostInstance;
+  let getNearestMountedDOMNode = (node: Element): null | Element => {
     // Not implemented.
     return null;
   };
 
   if (renderer.ComponentTree) {
-    getInternalIDForNative = (node, findNearestUnfilteredAncestor) => {
-      const internalInstance = renderer.ComponentTree.getClosestInstanceFromNode(
-        node,
-      );
+    getElementIDForHostInstance = node => {
+      const internalInstance =
+        renderer.ComponentTree.getClosestInstanceFromNode(node);
       return internalInstanceToIDMap.get(internalInstance) || null;
     };
-    findNativeNodeForInternalID = (id: number) => {
+    findHostInstanceForInternalID = (id: number) => {
       const internalInstance = idToInternalInstanceMap.get(id);
       return renderer.ComponentTree.getNodeFromInstance(internalInstance);
     };
-    getFiberForNative = (node: NativeType) => {
-      return renderer.ComponentTree.getClosestInstanceFromNode(node);
+    getNearestMountedDOMNode = (node: Element): null | Element => {
+      const internalInstance =
+        renderer.ComponentTree.getClosestInstanceFromNode(node);
+      if (internalInstance != null) {
+        return renderer.ComponentTree.getNodeFromInstance(internalInstance);
+      }
+      return null;
     };
   } else if (renderer.Mount.getID && renderer.Mount.getNode) {
-    getInternalIDForNative = (node, findNearestUnfilteredAncestor) => {
+    getElementIDForHostInstance = node => {
       // Not implemented.
       return null;
     };
-    findNativeNodeForInternalID = (id: number) => {
+    findHostInstanceForInternalID = (id: number) => {
       // Not implemented.
       return null;
     };
   }
 
-  function getDisplayNameForFiberID(id: number): string | null {
+  function getDisplayNameForElementID(id: number): string | null {
     const internalInstance = idToInternalInstanceMap.get(id);
     return internalInstance ? getData(internalInstance).displayName : null;
   }
@@ -248,7 +249,6 @@ export function attach(
           parentIDStack.pop();
           return result;
         } catch (err) {
-          // $FlowFixMe[incompatible-type] found when upgrading Flow
           parentIDStack = [];
           throw err;
         } finally {
@@ -285,7 +285,6 @@ export function attach(
           parentIDStack.pop();
           return result;
         } catch (err) {
-          // $FlowFixMe[incompatible-type] found when upgrading Flow
           parentIDStack = [];
           throw err;
         } finally {
@@ -322,7 +321,6 @@ export function attach(
           parentIDStack.pop();
           return result;
         } catch (err) {
-          // $FlowFixMe[incompatible-type] found when upgrading Flow
           parentIDStack = [];
           throw err;
         } finally {
@@ -354,7 +352,6 @@ export function attach(
 
           return result;
         } catch (err) {
-          // $FlowFixMe[incompatible-type] found when upgrading Flow
           parentIDStack = [];
           throw err;
         } finally {
@@ -507,11 +504,11 @@ export function attach(
     const numUnmountIDs =
       pendingUnmountedIDs.length + (pendingUnmountedRootID === null ? 0 : 1);
 
-    const operations = new Array(
+    const operations = new Array<number>(
       // Identify which renderer this update is coming from.
       2 + // [rendererID, rootFiberID]
-      // How big is the string table?
-      1 + // [stringTableLength]
+        // How big is the string table?
+        1 + // [stringTableLength]
         // Then goes the actual string table.
         pendingStringTableLength +
         // All unmounts are batched in a single message.
@@ -705,10 +702,15 @@ export function attach(
     }
   }
 
-  function copyElementPath(id: number, path: Array<string | number>): void {
+  function getSerializedElementValueByPath(
+    id: number,
+    path: Array<string | number>,
+  ): ?string {
     const inspectedElement = inspectElementRaw(id);
     if (inspectedElement !== null) {
-      copyToClipboard(getInObject(inspectedElement, path));
+      const valueToCopy = getInObject(inspectedElement, path);
+
+      return serializeToString(valueToCopy);
     }
   }
 
@@ -769,19 +771,17 @@ export function attach(
       return null;
     }
 
-    const {displayName, key} = getData(internalInstance);
+    const {key} = getData(internalInstance);
     const type = getElementType(internalInstance);
 
     let context = null;
     let owners = null;
     let props = null;
     let state = null;
-    let source = null;
 
     const element = internalInstance._currentElement;
     if (element !== null) {
       props = element.props;
-      source = element._source != null ? element._source : null;
 
       let owner = element._owner;
       if (owner) {
@@ -826,18 +826,16 @@ export function attach(
       // Toggle error boundary did not exist in legacy versions
       canToggleError: false,
       isErrored: false,
-      targetErrorBoundaryID: null,
 
       // Suspense did not exist in legacy versions
       canToggleSuspense: false,
 
       // Can view component source location.
       canViewSource: type === ElementTypeClass || type === ElementTypeFunction,
+      source: null,
 
       // Only legacy context exists in legacy versions.
       hasLegacyContext: true,
-
-      displayName: displayName,
 
       type: type,
 
@@ -853,9 +851,6 @@ export function attach(
 
       // List of owners
       owners,
-
-      // Location of component in source code.
-      source,
 
       rootType: null,
       rendererPackageName: null,
@@ -874,10 +869,12 @@ export function attach(
       return;
     }
 
+    const displayName = getDisplayNameForElementID(id);
+
     const supportsGroup = typeof console.groupCollapsed === 'function';
     if (supportsGroup) {
       console.groupCollapsed(
-        `[Click to expand] %c<${result.displayName || 'Component'} />`,
+        `[Click to expand] %c<${displayName || 'Component'} />`,
         // --dom-tag-name-color is the CSS variable Chrome styles HTML elements with in the console.
         'color: var(--dom-tag-name-color); font-weight: normal;',
       );
@@ -891,9 +888,9 @@ export function attach(
     if (result.context !== null) {
       console.log('Context:', result.context);
     }
-    const nativeNode = findNativeNodeForInternalID(id);
-    if (nativeNode !== null) {
-      console.log('Node:', nativeNode);
+    const hostInstance = findHostInstanceForInternalID(id);
+    if (hostInstance !== null) {
+      console.log('Node:', hostInstance);
     }
     if (window.chrome || /firefox/i.test(navigator.userAgent)) {
       console.log(
@@ -905,30 +902,31 @@ export function attach(
     }
   }
 
-  function prepareViewAttributeSource(
+  function getElementAttributeByPath(
     id: number,
     path: Array<string | number>,
-  ): void {
+  ): mixed {
     const inspectedElement = inspectElementRaw(id);
     if (inspectedElement !== null) {
-      window.$attribute = getInObject(inspectedElement, path);
+      return getInObject(inspectedElement, path);
     }
+    return undefined;
   }
 
-  function prepareViewElementSource(id: number): void {
+  function getElementSourceFunctionById(id: number): null | Function {
     const internalInstance = idToInternalInstanceMap.get(id);
     if (internalInstance == null) {
       console.warn(`Could not find instance with id "${id}"`);
-      return;
+      return null;
     }
 
     const element = internalInstance._currentElement;
     if (element == null) {
       console.warn(`Could not find element with id "${id}"`);
-      return;
+      return null;
     }
 
-    global.$type = element.type;
+    return element.type;
   }
 
   function deletePath(
@@ -1075,6 +1073,11 @@ export function attach(
     // Not implemented.
   }
 
+  function getEnvironmentNames(): Array<string> {
+    // No RSC support.
+    return [];
+  }
+
   function setTraceUpdatesEnabled(enabled: boolean) {
     // Not implemented.
   }
@@ -1092,34 +1095,34 @@ export function attach(
     // Not implemented
   }
 
-  function clearErrorsForFiberID(id: number) {
+  function clearErrorsForElementID(id: number) {
     // Not implemented
   }
 
-  function clearWarningsForFiberID(id: number) {
+  function clearWarningsForElementID(id: number) {
     // Not implemented
   }
 
-  function patchConsoleForStrictMode() {}
-
-  function unpatchConsoleForStrictMode() {}
+  function hasElementWithId(id: number): boolean {
+    return idToInternalInstanceMap.has(id);
+  }
 
   return {
     clearErrorsAndWarnings,
-    clearErrorsForFiberID,
-    clearWarningsForFiberID,
+    clearErrorsForElementID,
+    clearWarningsForElementID,
     cleanup,
-    copyElementPath,
+    getSerializedElementValueByPath,
     deletePath,
     flushInitialOperations,
     getBestMatchForTrackedPath,
-    getDisplayNameForFiberID,
-    getFiberForNative,
-    getFiberIDForNative: getInternalIDForNative,
+    getDisplayNameForElementID,
+    getNearestMountedDOMNode,
+    getElementIDForHostInstance,
     getInstanceAndStyle,
-    findNativeNodesForFiberID: (id: number) => {
-      const nativeNode = findNativeNodeForInternalID(id);
-      return nativeNode == null ? null : [nativeNode];
+    findHostInstancesForElementID: (id: number) => {
+      const hostInstance = findHostInstanceForInternalID(id);
+      return hostInstance == null ? null : [hostInstance];
     },
     getOwnersList,
     getPathForElement,
@@ -1127,22 +1130,22 @@ export function attach(
     handleCommitFiberRoot,
     handleCommitFiberUnmount,
     handlePostCommitFiberRoot,
+    hasElementWithId,
     inspectElement,
     logElementToConsole,
     overrideError,
     overrideSuspense,
     overrideValueAtPath,
     renamePath,
-    patchConsoleForStrictMode,
-    prepareViewAttributeSource,
-    prepareViewElementSource,
+    getElementAttributeByPath,
+    getElementSourceFunctionById,
     renderer,
     setTraceUpdatesEnabled,
     setTrackedPath,
     startProfiling,
     stopProfiling,
     storeAsGlobal,
-    unpatchConsoleForStrictMode,
     updateComponentFilters,
+    getEnvironmentNames,
   };
 }

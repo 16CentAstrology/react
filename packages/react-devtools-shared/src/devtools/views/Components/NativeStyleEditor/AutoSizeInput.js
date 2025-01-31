@@ -16,7 +16,6 @@ type Props = {
   placeholder?: string,
   testName?: ?string,
   value: any,
-  ...
 };
 
 export default function AutoSizeInput({
@@ -43,7 +42,7 @@ export default function AutoSizeInput({
   const isEmpty = value === '' || value === '""';
 
   return (
-    // $FlowFixMe unsafe rest spread
+    // $FlowFixMe[cannot-spread-inexact] unsafe rest spread
     <input
       className={[styles.Input, className].join(' ')}
       data-testname={testName}

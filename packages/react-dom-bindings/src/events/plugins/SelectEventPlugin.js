@@ -23,7 +23,7 @@ import {registerTwoPhaseEvent} from '../EventRegistry';
 import getActiveElement from '../../client/getActiveElement';
 import {getNodeFromInstance} from '../../client/ReactDOMComponentTree';
 import {hasSelectionCapabilities} from '../../client/ReactInputSelection';
-import {DOCUMENT_NODE} from '../../shared/HTMLNodeType';
+import {DOCUMENT_NODE} from '../../client/HTMLNodeType';
 import {accumulateTwoPhaseListeners} from '../DOMPluginEventSystem';
 
 const skipSelectionChangeEvent =
@@ -80,8 +80,8 @@ function getEventTargetDocument(eventTarget: any) {
   return eventTarget.window === eventTarget
     ? eventTarget.document
     : eventTarget.nodeType === DOCUMENT_NODE
-    ? eventTarget
-    : eventTarget.ownerDocument;
+      ? eventTarget
+      : eventTarget.ownerDocument;
 }
 
 /**

@@ -7,8 +7,6 @@
  * @flow
  */
 
-/* eslint-disable */
-
 // libdefs cannot actually import. These are supposed to be the types imported
 // from 'react-native-renderer/src/ReactNativeTypes'
 type __MeasureOnSuccessCallback = any;
@@ -16,6 +14,7 @@ type __MeasureInWindowOnSuccessCallback = any;
 type __MeasureLayoutOnSuccessCallback = any;
 type __ReactNativeBaseComponentViewConfig = any;
 type __ViewConfigGetter = any;
+type __ViewConfig = any;
 
 // libdefs cannot actually import. This is supposed to be the type imported
 // from 'react-native-renderer/src/legacy-events/TopLevelEventTypes';
@@ -48,21 +47,21 @@ declare module 'react-native/Libraries/ReactPrivate/ReactNativePrivateInterface'
   ): boolean;
   declare export function deepFreezeAndThrowOnMutationInDev<T>(obj: T): T;
   declare export function flattenStyle(style: any): any;
-  declare export var RCTEventEmitter: {
+  declare export const RCTEventEmitter: {
     register: (eventEmitter: mixed) => void,
     ...
   };
-  declare export var TextInputState: {
+  declare export const TextInputState: {
     blurTextInput: (object: any) => void,
     focusTextInput: (object: any) => void,
     ...
   };
-  declare export var ReactFiberErrorDialog: {
+  declare export const ReactFiberErrorDialog: {
     showErrorDialog: (error: __CapturedError) => boolean,
     ...
   };
-  declare export var Platform: {OS: string, ...};
-  declare export var UIManager: {
+  declare export const Platform: {OS: string, ...};
+  declare export const UIManager: {
     customBubblingEventTypes: Object,
     customDirectEventTypes: Object,
     createView: (
@@ -98,7 +97,7 @@ declare module 'react-native/Libraries/ReactPrivate/ReactNativePrivateInterface'
     setChildren: (containerTag: number, reactTags: Array<number>) => void,
     updateView: (reactTag: number, viewName: string, props: ?Object) => void,
     __takeSnapshot: (
-      view?: 'window' | Element<any> | number,
+      view?: 'window' | Element | number,
       options?: {
         width?: number,
         height?: number,
@@ -122,47 +121,62 @@ declare module 'react-native/Libraries/ReactPrivate/ReactNativePrivateInterface'
     ) => void,
     ...
   };
-  declare export var legacySendAccessibilityEvent: (
+  declare export const legacySendAccessibilityEvent: (
     reactTag: number,
     eventTypeName: string,
   ) => void;
-  declare export var BatchedBridge: {
+  declare export const BatchedBridge: {
     registerCallableModule: (name: string, module: Object) => void,
     ...
   };
-  declare export var ReactNativeViewConfigRegistry: {
+  declare export const ReactNativeViewConfigRegistry: {
     customBubblingEventTypes: Object,
     customDirectEventTypes: Object,
-    eventTypes: Object,
 
     register: (name: string, callback: __ViewConfigGetter) => string,
     get: (name: string) => __ReactNativeBaseComponentViewConfig,
     ...
   };
-  declare export var RawEventEmitter: {
+  declare export const RawEventEmitter: {
     emit: (channel: string, event: RawEventEmitterEvent) => string,
     ...
   };
-  declare export class CustomEvent {
-    isTrusted: boolean;
-
-    constructor(
-      name: string,
-      {
-        detail: any,
-      },
-    ): void;
-
-    setSyntheticEvent(event: any): void;
-  }
+  declare export opaque type PublicInstance;
+  declare export opaque type PublicTextInstance;
+  declare export opaque type PublicRootInstance;
+  declare export function getNodeFromPublicInstance(
+    publicInstance: PublicInstance,
+  ): Object;
+  declare export function getNativeTagFromPublicInstance(
+    publicInstance: PublicInstance,
+  ): number;
+  declare export function createPublicInstance(
+    tag: number,
+    viewConfig: __ViewConfig,
+    internalInstanceHandle: mixed,
+    publicRootInstance: PublicRootInstance | null,
+  ): PublicInstance;
+  declare export function createPublicRootInstance(
+    rootTag: number,
+  ): PublicRootInstance;
+  declare export function createPublicTextInstance(
+    internalInstanceHandle: mixed,
+  ): PublicTextInstance;
+  declare export function getInternalInstanceHandleFromPublicInstance(
+    publicInstance: PublicInstance,
+  ): ?Object;
 }
 
 declare module 'react-native/Libraries/ReactPrivate/ReactNativePrivateInitializeCore' {
 }
 
+// eslint-disable-next-line no-unused-vars
+declare const RN$enableMicrotasksInReact: boolean;
+
 // This is needed for a short term solution.
 // See https://github.com/facebook/react/pull/15490 for more info
-declare var nativeFabricUIManager: {
+// eslint-disable-next-line no-unused-vars
+declare const nativeFabricUIManager: {
   createNode: (
     reactTag: number,
     viewName: string,
@@ -171,12 +185,19 @@ declare var nativeFabricUIManager: {
     eventTarget: Object,
   ) => Object,
   cloneNode: (node: Object) => Object,
-  cloneNodeWithNewChildren: (node: Object) => Object,
+  cloneNodeWithNewChildren: (
+    node: Object,
+    children?: $ReadOnlyArray<Object>,
+  ) => Object,
   cloneNodeWithNewProps: (node: Object, newProps: ?Object) => Object,
-  cloneNodeWithNewChildrenAndProps: (node: Object, newProps: ?Object) => Object,
+  cloneNodeWithNewChildrenAndProps: (
+    node: Object,
+    newPropsOrChildren: ?Object | $ReadOnlyArray<Object>,
+    newProps?: ?Object,
+  ) => Object,
   appendChild: (node: Object, childNode: Object) => void,
 
-  createChildSet: (rootTag: number) => Object,
+  createChildSet: () => Object,
   appendChildToSet: (childSet: Object, childNode: Object) => void,
   completeRoot: (rootTag: number, childSet: Object) => void,
   registerEventHandler: (
@@ -190,25 +211,33 @@ declare var nativeFabricUIManager: {
   dispatchCommand: (node: Object, command: string, args: Array<any>) => void,
   sendAccessibilityEvent: (node: Object, eventTypeName: string) => void,
 
-  measure: (node: Node, callback: __MeasureOnSuccessCallback) => void,
+  measure: (node: Object, callback: __MeasureOnSuccessCallback) => void,
   measureInWindow: (
-    node: Node,
+    node: Object,
     callback: __MeasureInWindowOnSuccessCallback,
   ) => void,
   measureLayout: (
-    node: Node,
-    relativeNode: Node,
+    node: Object,
+    relativeNode: Object,
     onFail: () => void,
     onSuccess: __MeasureLayoutOnSuccessCallback,
   ) => void,
+  getBoundingClientRect: (
+    node: Object,
+  ) => [
+    /* x:*/ number,
+    /* y:*/ number,
+    /* width:*/ number,
+    /* height:*/ number,
+  ],
   findNodeAtPoint: (
-    node: Node,
+    node: Object,
     locationX: number,
     locationY: number,
     callback: (Object) => void,
   ) => void,
   setIsJSResponder: (
-    node: Node,
+    node: Object,
     isJsResponder: boolean,
     blockNativeResponder: boolean,
   ) => void,
@@ -217,33 +246,3 @@ declare var nativeFabricUIManager: {
   unstable_getCurrentEventPriority: () => number,
   ...
 };
-
-declare module 'View' {
-  declare module.exports: typeof React$Component;
-}
-
-declare module 'RTManager' {
-  declare function createNode(
-    tag: number,
-    classType: string,
-    props: ?Object,
-  ): void;
-
-  declare function beginUpdates(): void;
-
-  declare function appendChildToContext(
-    contextTag: number,
-    childTag: number,
-  ): void;
-  declare function appendChild(parentTag: number, childTag: number): void;
-  declare function prependChild(childTag: number, beforeTag: number): void;
-  declare function deleteChild(childTag: number): void;
-  declare function updateNode(tag: number, props: ?Object): void;
-
-  declare function completeUpdates(): void;
-}
-
-// shims/ReactFeatureFlags is generated by the packaging script
-declare module '../shims/ReactFeatureFlags' {
-  declare export var debugRenderPhaseSideEffects: boolean;
-}

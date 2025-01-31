@@ -14,15 +14,16 @@ import {
   ANIMATION_END,
   ANIMATION_ITERATION,
   ANIMATION_START,
+  TRANSITION_RUN,
+  TRANSITION_START,
+  TRANSITION_CANCEL,
   TRANSITION_END,
 } from './DOMEventNames';
 
 import {enableCreateEventHandleAPI} from 'shared/ReactFeatureFlags';
 
-export const topLevelEventsToReactNames: Map<
-  DOMEventName,
-  string | null,
-> = new Map();
+export const topLevelEventsToReactNames: Map<DOMEventName, string | null> =
+  new Map();
 
 // NOTE: Capitalization is important in this list!
 //
@@ -36,6 +37,7 @@ export const topLevelEventsToReactNames: Map<
 const simpleEventPluginEvents = [
   'abort',
   'auxClick',
+  'beforeToggle',
   'cancel',
   'canPlay',
   'canPlayThrough',
@@ -98,6 +100,7 @@ const simpleEventPluginEvents = [
   'touchStart',
   'volumeChange',
   'scroll',
+  'scrollEnd',
   'toggle',
   'touchMove',
   'waiting',
@@ -130,5 +133,9 @@ export function registerSimpleEvents() {
   registerSimpleEvent('dblclick', 'onDoubleClick');
   registerSimpleEvent('focusin', 'onFocus');
   registerSimpleEvent('focusout', 'onBlur');
+
+  registerSimpleEvent(TRANSITION_RUN, 'onTransitionRun');
+  registerSimpleEvent(TRANSITION_START, 'onTransitionStart');
+  registerSimpleEvent(TRANSITION_CANCEL, 'onTransitionCancel');
   registerSimpleEvent(TRANSITION_END, 'onTransitionEnd');
 }

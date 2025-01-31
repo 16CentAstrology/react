@@ -9,16 +9,29 @@
 
 import type {Fiber} from './ReactInternalTypes';
 import type {StackCursor} from './ReactFiberStack';
-import type {Container, HostContext} from './ReactFiberHostConfig';
+import type {Container, HostContext} from './ReactFiberConfig';
+import type {Hook} from './ReactFiberHooks';
 
-import {getChildHostContext, getRootHostContext} from './ReactFiberHostConfig';
+import {
+  getChildHostContext,
+  getRootHostContext,
+  HostTransitionContext,
+  NotPendingTransition,
+  isPrimaryRenderer,
+} from './ReactFiberConfig';
 import {createCursor, push, pop} from './ReactFiberStack';
 
 const contextStackCursor: StackCursor<HostContext | null> = createCursor(null);
 const contextFiberStackCursor: StackCursor<Fiber | null> = createCursor(null);
-const rootInstanceStackCursor: StackCursor<Container | null> = createCursor(
-  null,
-);
+const rootInstanceStackCursor: StackCursor<Container | null> =
+  createCursor(null);
+
+// Represents the nearest host transition provider (in React DOM, a <form />)
+// NOTE: Since forms cannot be nested, and this feature is only implemented by
+// React DOM, we don't technically need this to be a stack. It could be a single
+// module variable instead.
+const hostTransitionProviderCursor: StackCursor<Fiber | null> =
+  createCursor(null);
 
 function requiredContext<Value>(c: Value | null): Value {
   if (__DEV__) {
@@ -41,7 +54,11 @@ function getRootHostContainer(): Container {
   return rootInstance;
 }
 
-function pushHostContainer(fiber: Fiber, nextRootInstance: Container) {
+export function getHostTransitionProvider(): Fiber | null {
+  return hostTransitionProviderCursor.current;
+}
+
+function pushHostContainer(fiber: Fiber, nextRootInstance: Container): void {
   // Push current root instance onto the stack;
   // This allows us to reset root when portals are popped.
   push(rootInstanceStackCursor, nextRootInstance, fiber);
@@ -73,29 +90,52 @@ function getHostContext(): HostContext {
 }
 
 function pushHostContext(fiber: Fiber): void {
+  const stateHook: Hook | null = fiber.memoizedState;
+  if (stateHook !== null) {
+    // Only provide context if this fiber has been upgraded by a host
+    // transition. We use the same optimization for regular host context below.
+    push(hostTransitionProviderCursor, fiber, fiber);
+  }
+
   const context: HostContext = requiredContext(contextStackCursor.current);
   const nextContext = getChildHostContext(context, fiber.type);
 
   // Don't push this Fiber's context unless it's unique.
-  if (context === nextContext) {
-    return;
+  if (context !== nextContext) {
+    // Track the context and the Fiber that provided it.
+    // This enables us to pop only Fibers that provide unique contexts.
+    push(contextFiberStackCursor, fiber, fiber);
+    push(contextStackCursor, nextContext, fiber);
   }
-
-  // Track the context and the Fiber that provided it.
-  // This enables us to pop only Fibers that provide unique contexts.
-  push(contextFiberStackCursor, fiber, fiber);
-  push(contextStackCursor, nextContext, fiber);
 }
 
 function popHostContext(fiber: Fiber): void {
-  // Do not pop unless this Fiber provided the current context.
-  // pushHostContext() only pushes Fibers that provide unique contexts.
-  if (contextFiberStackCursor.current !== fiber) {
-    return;
+  if (contextFiberStackCursor.current === fiber) {
+    // Do not pop unless this Fiber provided the current context.
+    // pushHostContext() only pushes Fibers that provide unique contexts.
+    pop(contextStackCursor, fiber);
+    pop(contextFiberStackCursor, fiber);
   }
 
-  pop(contextStackCursor, fiber);
-  pop(contextFiberStackCursor, fiber);
+  if (hostTransitionProviderCursor.current === fiber) {
+    // Do not pop unless this Fiber provided the current context. This is mostly
+    // a performance optimization, but conveniently it also prevents a potential
+    // data race where a host provider is upgraded (i.e. memoizedState becomes
+    // non-null) during a concurrent event. This is a bit of a flaw in the way
+    // we upgrade host components, but because we're accounting for it here, it
+    // should be fine.
+    pop(hostTransitionProviderCursor, fiber);
+
+    // When popping the transition provider, we reset the context value back
+    // to `NotPendingTransition`. We can do this because you're not allowed to nest forms. If
+    // we allowed for multiple nested host transition providers, then we'd
+    // need to reset this to the parent provider's status.
+    if (isPrimaryRenderer) {
+      HostTransitionContext._currentValue = NotPendingTransition;
+    } else {
+      HostTransitionContext._currentValue2 = NotPendingTransition;
+    }
+  }
 }
 
 export {

@@ -11,7 +11,9 @@
 
 let React;
 let ReactNoop;
-let Scheduler;
+let waitForAll;
+let act;
+let assertConsoleErrorDev;
 
 describe('ReactSuspense', () => {
   beforeEach(() => {
@@ -19,12 +21,12 @@ describe('ReactSuspense', () => {
 
     React = require('react');
     ReactNoop = require('react-noop-renderer');
-    Scheduler = require('scheduler');
-  });
 
-  function text(t) {
-    return {text: t, hidden: false};
-  }
+    const InternalTestUtils = require('internal-test-utils');
+    waitForAll = InternalTestUtils.waitForAll;
+    act = InternalTestUtils.act;
+    assertConsoleErrorDev = InternalTestUtils.assertConsoleErrorDev;
+  });
 
   function createThenable() {
     let completed = false;
@@ -44,34 +46,36 @@ describe('ReactSuspense', () => {
     return {promise, resolve, PromiseComp};
   }
 
-  if (__DEV__) {
-    // @gate www
-    it('check type', () => {
-      const {PromiseComp} = createThenable();
+  // Warning don't fire in production, so this test passes in prod even if
+  // the suspenseCallback feature is not enabled
+  // @gate enableSuspenseCallback || !__DEV__
+  it('check type', async () => {
+    const {PromiseComp} = createThenable();
 
-      const elementBadType = (
-        <React.Suspense suspenseCallback={1} fallback={'Waiting'}>
-          <PromiseComp />
-        </React.Suspense>
-      );
+    const elementBadType = (
+      <React.Suspense suspenseCallback={1} fallback={'Waiting'}>
+        <PromiseComp />
+      </React.Suspense>
+    );
 
-      ReactNoop.render(elementBadType);
-      expect(() => Scheduler.unstable_flushAll()).toErrorDev([
-        'Warning: Unexpected type for suspenseCallback.',
-      ]);
-
-      const elementMissingCallback = (
-        <React.Suspense fallback={'Waiting'}>
-          <PromiseComp />
-        </React.Suspense>
-      );
-
-      ReactNoop.render(elementMissingCallback);
-      expect(() => Scheduler.unstable_flushAll()).toErrorDev([]);
+    ReactNoop.render(elementBadType);
+    await waitForAll([]);
+    assertConsoleErrorDev(['Unexpected type for suspenseCallback.'], {
+      withoutStack: true,
     });
-  }
 
-  // @gate www
+    const elementMissingCallback = (
+      <React.Suspense fallback={'Waiting'}>
+        <PromiseComp />
+      </React.Suspense>
+    );
+
+    ReactNoop.render(elementMissingCallback);
+    await waitForAll([]);
+    assertConsoleErrorDev([]);
+  });
+
+  // @gate enableSuspenseCallback
   it('1 then 0 suspense callback', async () => {
     const {promise, resolve, PromiseComp} = createThenable();
 
@@ -87,18 +91,18 @@ describe('ReactSuspense', () => {
     );
 
     ReactNoop.render(element);
-    expect(Scheduler).toFlushWithoutYielding();
-    expect(ReactNoop.getChildren()).toEqual([text('Waiting')]);
+    await waitForAll([]);
+    expect(ReactNoop).toMatchRenderedOutput('Waiting');
     expect(ops).toEqual([new Set([promise])]);
     ops = [];
 
-    await resolve();
-    expect(Scheduler).toFlushWithoutYielding();
-    expect(ReactNoop.getChildren()).toEqual([text('Done')]);
+    await act(() => resolve());
+    await waitForAll([]);
+    expect(ReactNoop).toMatchRenderedOutput('Done');
     expect(ops).toEqual([]);
   });
 
-  // @gate www
+  // @gate enableSuspenseCallback
   it('2 then 1 then 0 suspense callback', async () => {
     const {
       promise: promise1,
@@ -126,27 +130,31 @@ describe('ReactSuspense', () => {
     );
 
     ReactNoop.render(element);
-    expect(Scheduler).toFlushWithoutYielding();
-    expect(ReactNoop.getChildren()).toEqual([text('Waiting Tier 1')]);
-    expect(ops).toEqual([new Set([promise1, promise2])]);
+    await waitForAll([]);
+    expect(ReactNoop).toMatchRenderedOutput('Waiting Tier 1');
+    expect(ops).toEqual([new Set([promise1])]);
     ops = [];
 
-    await resolve1();
+    await act(() => resolve1());
     ReactNoop.render(element);
-    expect(Scheduler).toFlushWithoutYielding();
-    expect(ReactNoop.getChildren()).toEqual([text('Waiting Tier 1')]);
-    expect(ops).toEqual([new Set([promise2])]);
+    await waitForAll([]);
+    expect(ReactNoop).toMatchRenderedOutput('Waiting Tier 1');
+    expect(ops).toEqual([
+      new Set([promise2]),
+
+      ...(gate('enableSiblingPrerendering') ? new Set([promise2]) : []),
+    ]);
     ops = [];
 
-    await resolve2();
+    await act(() => resolve2());
     ReactNoop.render(element);
-    expect(Scheduler).toFlushWithoutYielding();
-    expect(ReactNoop.getChildren()).toEqual([text('Done'), text('Done')]);
+    await waitForAll([]);
+    expect(ReactNoop).toMatchRenderedOutput('DoneDone');
     expect(ops).toEqual([]);
   });
 
-  // @gate www
-  it('nested suspense promises are reported only for their tier', () => {
+  // @gate enableSuspenseCallback
+  it('nested suspense promises are reported only for their tier', async () => {
     const {promise, PromiseComp} = createThenable();
 
     const ops1 = [];
@@ -171,13 +179,13 @@ describe('ReactSuspense', () => {
     );
 
     ReactNoop.render(element);
-    expect(Scheduler).toFlushWithoutYielding();
-    expect(ReactNoop.getChildren()).toEqual([text('Waiting Tier 2')]);
+    await waitForAll([]);
+    expect(ReactNoop).toMatchRenderedOutput('Waiting Tier 2');
     expect(ops1).toEqual([]);
     expect(ops2).toEqual([new Set([promise])]);
   });
 
-  // @gate www
+  // @gate enableSuspenseCallback
   it('competing suspense promises', async () => {
     const {
       promise: promise1,
@@ -213,34 +221,26 @@ describe('ReactSuspense', () => {
     );
 
     ReactNoop.render(element);
-    expect(Scheduler).toFlushWithoutYielding();
-    expect(ReactNoop.getChildren()).toEqual([text('Waiting Tier 1')]);
+    await waitForAll([]);
+    expect(ReactNoop).toMatchRenderedOutput('Waiting Tier 1');
     expect(ops1).toEqual([new Set([promise1])]);
     expect(ops2).toEqual([]);
     ops1 = [];
     ops2 = [];
 
-    await resolve1();
-    ReactNoop.render(element);
-    expect(Scheduler).toFlushWithoutYielding();
-
-    // Force fallback to commit.
-    // TODO: Should be able to use `act` here.
-    jest.runAllTimers();
-
-    expect(ReactNoop.getChildren()).toEqual([
-      text('Waiting Tier 2'),
-      text('Done'),
-    ]);
+    await act(() => resolve1());
+    expect(ReactNoop).toMatchRenderedOutput('Waiting Tier 2Done');
     expect(ops1).toEqual([]);
-    expect(ops2).toEqual([new Set([promise2])]);
+    expect(ops2).toEqual([
+      new Set([promise2]),
+
+      ...(gate('enableSiblingPrerendering') ? new Set([promise2]) : []),
+    ]);
     ops1 = [];
     ops2 = [];
 
-    await resolve2();
-    ReactNoop.render(element);
-    expect(Scheduler).toFlushWithoutYielding();
-    expect(ReactNoop.getChildren()).toEqual([text('Done'), text('Done')]);
+    await act(() => resolve2());
+    expect(ReactNoop).toMatchRenderedOutput('DoneDone');
     expect(ops1).toEqual([]);
     expect(ops2).toEqual([]);
   });

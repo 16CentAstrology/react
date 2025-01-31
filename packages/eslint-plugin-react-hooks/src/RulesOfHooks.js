@@ -16,10 +16,7 @@
  */
 
 function isHookName(s) {
-  if (__EXPERIMENTAL__) {
-    return s === 'use' || /^use[A-Z0-9]/.test(s);
-  }
-  return /^use[A-Z0-9]/.test(s);
+  return s === 'use' || /^use[A-Z0-9]/.test(s);
 }
 
 /**
@@ -103,6 +100,16 @@ function isInsideComponentOrHook(node) {
   return false;
 }
 
+function isInsideDoWhileLoop(node) {
+  while (node) {
+    if (node.type === 'DoWhileStatement') {
+      return true;
+    }
+    node = node.parent;
+  }
+  return false;
+}
+
 function isUseEffectEventIdentifier(node) {
   if (__EXPERIMENTAL__) {
     return node.type === 'Identifier' && node.name === 'useEffectEvent';
@@ -111,10 +118,7 @@ function isUseEffectEventIdentifier(node) {
 }
 
 function isUseIdentifier(node) {
-  if (__EXPERIMENTAL__) {
-    return node.type === 'Identifier' && node.name === 'use';
-  }
-  return false;
+  return isReactFunction(node, 'use');
 }
 
 export default {
@@ -153,6 +157,29 @@ export default {
         }
       }
     }
+
+    /**
+     * SourceCode#getText that also works down to ESLint 3.0.0
+     */
+    const getSource =
+      typeof context.getSource === 'function'
+        ? node => {
+            return context.getSource(node);
+          }
+        : node => {
+            return context.sourceCode.getText(node);
+          };
+    /**
+     * SourceCode#getScope that also works down to ESLint 3.0.0
+     */
+    const getScope =
+      typeof context.getScope === 'function'
+        ? () => {
+            return context.getScope();
+          }
+        : node => {
+            return context.sourceCode.getScope(node);
+          };
 
     return {
       // Maintain code segment path stack as we traverse.
@@ -383,9 +410,8 @@ export default {
 
         // This is a valid code path for React hooks if we are directly in a React
         // function component or we are in a hook function.
-        const isSomewhereInsideComponentOrHook = isInsideComponentOrHook(
-          codePathNode,
-        );
+        const isSomewhereInsideComponentOrHook =
+          isInsideComponentOrHook(codePathNode);
         const isDirectlyInsideComponentOrHook = codePathFunctionName
           ? isComponentName(codePathFunctionName) ||
             isHook(codePathFunctionName)
@@ -469,11 +495,14 @@ export default {
           for (const hook of reactHooks) {
             // Report an error if a hook may be called more then once.
             // `use(...)` can be called in loops.
-            if (cycled && !isUseIdentifier(hook)) {
+            if (
+              (cycled || isInsideDoWhileLoop(hook)) &&
+              !isUseIdentifier(hook)
+            ) {
               context.report({
                 node: hook,
                 message:
-                  `React Hook "${context.getSource(hook)}" may be executed ` +
+                  `React Hook "${getSource(hook)}" may be executed ` +
                   'more than once. Possibly because it is called in a loop. ' +
                   'React Hooks must be called in the exact same order in ' +
                   'every component render.',
@@ -486,6 +515,17 @@ export default {
             // Pick a special message depending on the scope this hook was
             // called in.
             if (isDirectlyInsideComponentOrHook) {
+              // Report an error if the hook is called inside an async function.
+              const isAsyncFunction = codePathNode.async;
+              if (isAsyncFunction) {
+                context.report({
+                  node: hook,
+                  message:
+                    `React Hook "${getSource(hook)}" cannot be ` +
+                    'called in an async function.',
+                });
+              }
+
               // Report an error if a hook does not reach all finalizing code
               // path segments.
               //
@@ -493,10 +533,11 @@ export default {
               if (
                 !cycled &&
                 pathsFromStartToEnd !== allPathsFromStartToEnd &&
-                !isUseIdentifier(hook) // `use(...)` can be called conditionally.
+                !isUseIdentifier(hook) && // `use(...)` can be called conditionally.
+                !isInsideDoWhileLoop(hook) // wrapping do/while loops are checked separately.
               ) {
                 const message =
-                  `React Hook "${context.getSource(hook)}" is called ` +
+                  `React Hook "${getSource(hook)}" is called ` +
                   'conditionally. React Hooks must be called in the exact ' +
                   'same order in every component render.' +
                   (possiblyHasEarlyReturn
@@ -508,20 +549,21 @@ export default {
             } else if (
               codePathNode.parent &&
               (codePathNode.parent.type === 'MethodDefinition' ||
-                codePathNode.parent.type === 'ClassProperty') &&
+                codePathNode.parent.type === 'ClassProperty' ||
+                codePathNode.parent.type === 'PropertyDefinition') &&
               codePathNode.parent.value === codePathNode
             ) {
               // Custom message for hooks inside a class
               const message =
-                `React Hook "${context.getSource(hook)}" cannot be called ` +
+                `React Hook "${getSource(hook)}" cannot be called ` +
                 'in a class component. React Hooks must be called in a ' +
                 'React function component or a custom React Hook function.';
               context.report({node: hook, message});
             } else if (codePathFunctionName) {
               // Custom message if we found an invalid function name.
               const message =
-                `React Hook "${context.getSource(hook)}" is called in ` +
-                `function "${context.getSource(codePathFunctionName)}" ` +
+                `React Hook "${getSource(hook)}" is called in ` +
+                `function "${getSource(codePathFunctionName)}" ` +
                 'that is neither a React function component nor a custom ' +
                 'React Hook function.' +
                 ' React component names must start with an uppercase letter.' +
@@ -530,7 +572,7 @@ export default {
             } else if (codePathNode.type === 'Program') {
               // These are dangerous if you have inline requires enabled.
               const message =
-                `React Hook "${context.getSource(hook)}" cannot be called ` +
+                `React Hook "${getSource(hook)}" cannot be called ` +
                 'at the top level. React Hooks must be called in a ' +
                 'React function component or a custom React Hook function.';
               context.report({node: hook, message});
@@ -543,7 +585,7 @@ export default {
               // `use(...)` can be called in callbacks.
               if (isSomewhereInsideComponentOrHook && !isUseIdentifier(hook)) {
                 const message =
-                  `React Hook "${context.getSource(hook)}" cannot be called ` +
+                  `React Hook "${getSource(hook)}" cannot be called ` +
                   'inside a callback. React Hooks must be called in a ' +
                   'React function component or a custom React Hook function.';
                 context.report({node: hook, message});
@@ -596,7 +638,7 @@ export default {
           context.report({
             node,
             message:
-              `\`${context.getSource(
+              `\`${getSource(
                 node,
               )}\` is a function created with React Hook "useEffectEvent", and can only be called from ` +
               'the same component. They cannot be assigned to variables or passed down.',
@@ -613,14 +655,14 @@ export default {
       FunctionDeclaration(node) {
         // function MyComponent() { const onClick = useEffectEvent(...) }
         if (isInsideComponentOrHook(node)) {
-          recordAllUseEffectEventFunctions(context.getScope());
+          recordAllUseEffectEventFunctions(getScope(node));
         }
       },
 
       ArrowFunctionExpression(node) {
         // const MyComponent = () => { const onClick = useEffectEvent(...) }
         if (isInsideComponentOrHook(node)) {
-          recordAllUseEffectEventFunctions(context.getScope());
+          recordAllUseEffectEventFunctions(getScope(node));
         }
       },
     };

@@ -9,8 +9,8 @@
 
 import * as React from 'react';
 import {useContext} from 'react';
-import {enableProfilerChangedHookIndices} from 'react-devtools-feature-flags';
-import {ProfilerContext} from '../Profiler/ProfilerContext';
+
+import {ProfilerContext} from './ProfilerContext';
 import {StoreContext} from '../context';
 
 import styles from './WhatChanged.css';
@@ -63,14 +63,8 @@ export default function WhatChanged({fiberID}: Props): React.Node {
     return null;
   }
 
-  const {
-    context,
-    didHooksChange,
-    hooks,
-    isFirstMount,
-    props,
-    state,
-  } = changeDescription;
+  const {context, didHooksChange, hooks, isFirstMount, props, state} =
+    changeDescription;
 
   if (isFirstMount) {
     return (
@@ -109,7 +103,7 @@ export default function WhatChanged({fiberID}: Props): React.Node {
   }
 
   if (didHooksChange) {
-    if (enableProfilerChangedHookIndices && Array.isArray(hooks)) {
+    if (Array.isArray(hooks)) {
       changes.push(
         <div key="hooks" className={styles.Item}>
           • {hookIndicesToString(hooks)}
@@ -159,7 +153,7 @@ export default function WhatChanged({fiberID}: Props): React.Node {
   }
 
   return (
-    <div className={styles.Component}>
+    <div>
       <label className={styles.Label}>Why did this render?</label>
       {changes}
     </div>

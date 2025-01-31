@@ -259,7 +259,7 @@ class ModernClassContextConsumerWithUpdates extends Component<any> {
   render(): any {
     return (
       <StringContextWithUpdates.Consumer>
-        {({string, setString}) => (
+        {({string, setString}: {string: string, setString: string => void}) => (
           <>
             {formatContextForDisplay(
               'ModernClassContextConsumerWithUpdates',
@@ -273,18 +273,51 @@ class ModernClassContextConsumerWithUpdates extends Component<any> {
   }
 }
 
+type LegacyContextState = {
+  supportsLegacyContext: boolean,
+};
+class LegacyContext extends React.Component {
+  state: LegacyContextState = {supportsLegacyContext: true};
+
+  static getDerivedStateFromError(error: any): LegacyContextState {
+    return {supportsLegacyContext: false};
+  }
+
+  componentDidCatch(error: any, info: any) {
+    console.info(
+      'Assuming legacy context is not supported in this React version due to: ',
+      error,
+      info,
+    );
+  }
+
+  render(): React.Node {
+    if (!this.state.supportsLegacyContext) {
+      return <p>This version of React does not support legacy context.</p>;
+    }
+
+    return (
+      <React.Fragment>
+        <LegacyContextProvider>
+          <LegacyContextConsumer />
+        </LegacyContextProvider>
+        <LegacyContextProviderWithUpdates />
+      </React.Fragment>
+    );
+  }
+}
+
 export default function Contexts(): React.Node {
   return (
     <div>
       <h1>Contexts</h1>
       <ul>
-        <LegacyContextProvider>
-          <LegacyContextConsumer />
-        </LegacyContextProvider>
-        <LegacyContextProviderWithUpdates />
+        <LegacyContext />
         <ModernContext.Provider value={contextData}>
           <ModernContext.Consumer>
-            {value => formatContextForDisplay('ModernContext.Consumer', value)}
+            {(value: $FlowFixMe) =>
+              formatContextForDisplay('ModernContext.Consumer', value)
+            }
           </ModernContext.Consumer>
           <ModernContextType />
         </ModernContext.Provider>
@@ -292,28 +325,44 @@ export default function Contexts(): React.Node {
         <FunctionalContextProviderWithContextUpdates />
         <ModernClassContextProviderWithUpdates />
         <ArrayContext.Consumer>
-          {value => formatContextForDisplay('ArrayContext.Consumer', value)}
+          {(value: $FlowFixMe) =>
+            formatContextForDisplay('ArrayContext.Consumer', value)
+          }
         </ArrayContext.Consumer>
         <BoolContext.Consumer>
-          {value => formatContextForDisplay('BoolContext.Consumer', value)}
+          {(value: $FlowFixMe) =>
+            formatContextForDisplay('BoolContext.Consumer', value)
+          }
         </BoolContext.Consumer>
         <FuncContext.Consumer>
-          {value => formatContextForDisplay('FuncContext.Consumer', value)}
+          {(value: $FlowFixMe) =>
+            formatContextForDisplay('FuncContext.Consumer', value)
+          }
         </FuncContext.Consumer>
         <NumberContext.Consumer>
-          {value => formatContextForDisplay('NumberContext.Consumer', value)}
+          {(value: $FlowFixMe) =>
+            formatContextForDisplay('NumberContext.Consumer', value)
+          }
         </NumberContext.Consumer>
         <StringContext.Consumer>
-          {value => formatContextForDisplay('StringContext.Consumer', value)}
+          {(value: $FlowFixMe) =>
+            formatContextForDisplay('StringContext.Consumer', value)
+          }
         </StringContext.Consumer>
         <SymbolContext.Consumer>
-          {value => formatContextForDisplay('SymbolContext.Consumer', value)}
+          {(value: $FlowFixMe) =>
+            formatContextForDisplay('SymbolContext.Consumer', value)
+          }
         </SymbolContext.Consumer>
         <NullContext.Consumer>
-          {value => formatContextForDisplay('NullContext.Consumer', value)}
+          {(value: $FlowFixMe) =>
+            formatContextForDisplay('NullContext.Consumer', value)
+          }
         </NullContext.Consumer>
         <UndefinedContext.Consumer>
-          {value => formatContextForDisplay('UndefinedContext.Consumer', value)}
+          {(value: $FlowFixMe) =>
+            formatContextForDisplay('UndefinedContext.Consumer', value)
+          }
         </UndefinedContext.Consumer>
       </ul>
     </div>

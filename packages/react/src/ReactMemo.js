@@ -34,10 +34,10 @@ export function memo<Props>(
     Object.defineProperty(elementType, 'displayName', {
       enumerable: false,
       configurable: true,
-      get: function() {
+      get: function () {
         return ownName;
       },
-      set: function(name) {
+      set: function (name) {
         ownName = name;
 
         // The inner component shouldn't inherit this display name in most cases,
@@ -48,6 +48,9 @@ export function memo<Props>(
         //   React.memo((props) => {...});
         // This kind of inner function is not used elsewhere so the side effect is okay.
         if (!type.name && !type.displayName) {
+          Object.defineProperty(type, 'name', {
+            value: name,
+          });
           type.displayName = name;
         }
       },

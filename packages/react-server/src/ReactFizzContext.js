@@ -9,7 +9,6 @@
 
 import {disableLegacyContext} from 'shared/ReactFeatureFlags';
 import getComponentNameFromType from 'shared/getComponentNameFromType';
-import checkPropTypes from 'shared/checkPropTypes';
 
 let warnedAboutMissingGetChildContext;
 
@@ -34,11 +33,6 @@ export function getMaskedContext(type: any, unmaskedContext: Object): Object {
     const context: {[string]: $FlowFixMe} = {};
     for (const key in contextTypes) {
       context[key] = unmaskedContext[key];
-    }
-
-    if (__DEV__) {
-      const name = getComponentNameFromType(type) || 'Unknown';
-      checkPropTypes(contextTypes, context, 'context', name);
     }
 
     return context;
@@ -78,16 +72,12 @@ export function processChildContext(
     for (const contextKey in childContext) {
       if (!(contextKey in childContextTypes)) {
         throw new Error(
-          `${getComponentNameFromType(type) ||
-            'Unknown'}.getChildContext(): key "${contextKey}" is not defined in childContextTypes.`,
+          `${
+            getComponentNameFromType(type) || 'Unknown'
+          }.getChildContext(): key "${contextKey}" is not defined in childContextTypes.`,
         );
       }
     }
-    if (__DEV__) {
-      const name = getComponentNameFromType(type) || 'Unknown';
-      checkPropTypes(childContextTypes, childContext, 'child context', name);
-    }
-
     return {...parentContext, ...childContext};
   }
 }

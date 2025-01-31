@@ -14,28 +14,34 @@ export interface Destination {
 
 export opaque type PrecomputedChunk = string;
 export opaque type Chunk = string;
+export opaque type BinaryChunk = string;
 
 export function scheduleWork(callback: () => void) {
   callback();
 }
 
-export function flushBuffered(destination: Destination) {}
+export function scheduleMicrotask(callback: () => void) {
+  // While this defies the method name the legacy builds have special
+  // overrides that make work scheduling sync. At the moment scheduleMicrotask
+  // isn't used by any legacy APIs so this is somewhat academic but if they
+  // did in the future we'd probably want to have this be in sync with scheduleWork
+  callback();
+}
 
-export const supportsRequestStorage = false;
-export const requestStorage: AsyncLocalStorage<any> = (null: any);
+export function flushBuffered(destination: Destination) {}
 
 export function beginWriting(destination: Destination) {}
 
 export function writeChunk(
   destination: Destination,
-  chunk: Chunk | PrecomputedChunk,
+  chunk: Chunk | PrecomputedChunk | BinaryChunk,
 ): void {
   writeChunkAndReturn(destination, chunk);
 }
 
 export function writeChunkAndReturn(
   destination: Destination,
-  chunk: Chunk | PrecomputedChunk,
+  chunk: Chunk | PrecomputedChunk | BinaryChunk,
 ): boolean {
   return destination.push(chunk);
 }
@@ -54,13 +60,23 @@ export function stringToPrecomputedChunk(content: string): PrecomputedChunk {
   return content;
 }
 
-export function clonePrecomputedChunk(
-  chunk: PrecomputedChunk,
-): PrecomputedChunk {
-  return chunk;
+export function typedArrayToBinaryChunk(
+  content: $ArrayBufferView,
+): BinaryChunk {
+  throw new Error('Not implemented.');
+}
+
+export const byteLengthOfChunk:
+  | null
+  | ((chunk: Chunk | PrecomputedChunk) => number) = null;
+
+export function byteLengthOfBinaryChunk(chunk: BinaryChunk): number {
+  throw new Error('Not implemented.');
 }
 
 export function closeWithError(destination: Destination, error: mixed): void {
-  // $FlowFixMe: This is an Error object or the destination accepts other types.
+  // $FlowFixMe[incompatible-call]: This is an Error object or the destination accepts other types.
   destination.destroy(error);
 }
+
+export {createFastHashJS as createFastHash} from 'react-server/src/createFastHashJS';

@@ -18,21 +18,19 @@ import {
   useMemo,
 } from 'react';
 import {
-  COMFORTABLE_LINE_HEIGHT,
-  COMPACT_LINE_HEIGHT,
   LOCAL_STORAGE_BROWSER_THEME,
   LOCAL_STORAGE_PARSE_HOOK_NAMES_KEY,
-  LOCAL_STORAGE_SHOULD_BREAK_ON_CONSOLE_ERRORS,
-  LOCAL_STORAGE_SHOULD_APPEND_COMPONENT_STACK_KEY,
   LOCAL_STORAGE_TRACE_UPDATES_ENABLED_KEY,
-  LOCAL_STORAGE_SHOW_INLINE_WARNINGS_AND_ERRORS_KEY,
-  LOCAL_STORAGE_HIDE_CONSOLE_LOGS_IN_STRICT_MODE,
 } from 'react-devtools-shared/src/constants';
+import {
+  COMFORTABLE_LINE_HEIGHT,
+  COMPACT_LINE_HEIGHT,
+} from 'react-devtools-shared/src/devtools/constants';
 import {useLocalStorage} from '../hooks';
 import {BridgeContext} from '../context';
 import {logEvent} from 'react-devtools-shared/src/Logger';
 
-import type {BrowserTheme} from '../DevTools';
+import type {BrowserTheme} from 'react-devtools-shared/src/frontend/types';
 
 export type DisplayDensity = 'comfortable' | 'compact';
 export type Theme = 'auto' | 'light' | 'dark';
@@ -45,20 +43,8 @@ type Context = {
   // Specified as a separate prop so it can trigger a re-render of FixedSizeList.
   lineHeight: number,
 
-  appendComponentStack: boolean,
-  setAppendComponentStack: (value: boolean) => void,
-
-  breakOnConsoleErrors: boolean,
-  setBreakOnConsoleErrors: (value: boolean) => void,
-
   parseHookNames: boolean,
   setParseHookNames: (value: boolean) => void,
-
-  hideConsoleLogsInStrictMode: boolean,
-  setHideConsoleLogsInStrictMode: (value: boolean) => void,
-
-  showInlineWarningsAndErrors: boolean,
-  setShowInlineWarningsAndErrors: (value: boolean) => void,
 
   theme: Theme,
   setTheme(value: Theme): void,
@@ -107,56 +93,24 @@ function SettingsContextController({
 }: Props): React.Node {
   const bridge = useContext(BridgeContext);
 
-  const [
-    displayDensity,
-    setDisplayDensity,
-  ] = useLocalStorageWithLog<DisplayDensity>(
-    'React::DevTools::displayDensity',
-    'compact',
-  );
+  const [displayDensity, setDisplayDensity] =
+    useLocalStorageWithLog<DisplayDensity>(
+      'React::DevTools::displayDensity',
+      'compact',
+    );
   const [theme, setTheme] = useLocalStorageWithLog<Theme>(
     LOCAL_STORAGE_BROWSER_THEME,
     'auto',
-  );
-  const [
-    appendComponentStack,
-    setAppendComponentStack,
-  ] = useLocalStorageWithLog<boolean>(
-    LOCAL_STORAGE_SHOULD_APPEND_COMPONENT_STACK_KEY,
-    true,
-  );
-  const [
-    breakOnConsoleErrors,
-    setBreakOnConsoleErrors,
-  ] = useLocalStorageWithLog<boolean>(
-    LOCAL_STORAGE_SHOULD_BREAK_ON_CONSOLE_ERRORS,
-    false,
   );
   const [parseHookNames, setParseHookNames] = useLocalStorageWithLog<boolean>(
     LOCAL_STORAGE_PARSE_HOOK_NAMES_KEY,
     false,
   );
-  const [
-    hideConsoleLogsInStrictMode,
-    setHideConsoleLogsInStrictMode,
-  ] = useLocalStorageWithLog<boolean>(
-    LOCAL_STORAGE_HIDE_CONSOLE_LOGS_IN_STRICT_MODE,
-    false,
-  );
-  const [
-    showInlineWarningsAndErrors,
-    setShowInlineWarningsAndErrors,
-  ] = useLocalStorageWithLog<boolean>(
-    LOCAL_STORAGE_SHOW_INLINE_WARNINGS_AND_ERRORS_KEY,
-    true,
-  );
-  const [
-    traceUpdatesEnabled,
-    setTraceUpdatesEnabled,
-  ] = useLocalStorageWithLog<boolean>(
-    LOCAL_STORAGE_TRACE_UPDATES_ENABLED_KEY,
-    false,
-  );
+  const [traceUpdatesEnabled, setTraceUpdatesEnabled] =
+    useLocalStorageWithLog<boolean>(
+      LOCAL_STORAGE_TRACE_UPDATES_ENABLED_KEY,
+      false,
+    );
 
   const documentElements = useMemo<DocumentElements>(() => {
     const array: Array<HTMLElement> = [
@@ -207,65 +161,32 @@ function SettingsContextController({
   }, [browserTheme, theme, documentElements]);
 
   useEffect(() => {
-    bridge.send('updateConsolePatchSettings', {
-      appendComponentStack,
-      breakOnConsoleErrors,
-      showInlineWarningsAndErrors,
-      hideConsoleLogsInStrictMode,
-      browserTheme,
-    });
-  }, [
-    bridge,
-    appendComponentStack,
-    breakOnConsoleErrors,
-    showInlineWarningsAndErrors,
-    hideConsoleLogsInStrictMode,
-    browserTheme,
-  ]);
-
-  useEffect(() => {
     bridge.send('setTraceUpdatesEnabled', traceUpdatesEnabled);
   }, [bridge, traceUpdatesEnabled]);
 
-  const value = useMemo(
+  const value: Context = useMemo(
     () => ({
-      appendComponentStack,
-      breakOnConsoleErrors,
       displayDensity,
       lineHeight:
         displayDensity === 'compact'
           ? COMPACT_LINE_HEIGHT
           : COMFORTABLE_LINE_HEIGHT,
       parseHookNames,
-      setAppendComponentStack,
-      setBreakOnConsoleErrors,
       setDisplayDensity,
       setParseHookNames,
       setTheme,
       setTraceUpdatesEnabled,
-      setShowInlineWarningsAndErrors,
-      showInlineWarningsAndErrors,
-      setHideConsoleLogsInStrictMode,
-      hideConsoleLogsInStrictMode,
       theme,
       browserTheme,
       traceUpdatesEnabled,
     }),
     [
-      appendComponentStack,
-      breakOnConsoleErrors,
       displayDensity,
       parseHookNames,
-      setAppendComponentStack,
-      setBreakOnConsoleErrors,
       setDisplayDensity,
       setParseHookNames,
       setTheme,
       setTraceUpdatesEnabled,
-      setShowInlineWarningsAndErrors,
-      showInlineWarningsAndErrors,
-      setHideConsoleLogsInStrictMode,
-      hideConsoleLogsInStrictMode,
       theme,
       browserTheme,
       traceUpdatesEnabled,
@@ -302,7 +223,7 @@ export function updateThemeVariables(
   // but it makes a significant UI improvement in dark mode.
   // https://developer.mozilla.org/en-US/docs/Web/CSS/scrollbar-color
   documentElements.forEach(documentElement => {
-    // $FlowFixMe scrollbarColor is missing in CSSStyleDeclaration
+    // $FlowFixMe[prop-missing] scrollbarColor is missing in CSSStyleDeclaration
     documentElement.style.scrollbarColor = `var(${`--${theme}-color-scroll-thumb`}) var(${`--${theme}-color-scroll-track`})`;
   });
 }

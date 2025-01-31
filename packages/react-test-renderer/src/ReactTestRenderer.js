@@ -12,7 +12,7 @@ import type {
   PublicInstance,
   Instance,
   TextInstance,
-} from './ReactTestHostConfig';
+} from './ReactFiberConfigTestHost';
 
 import * as React from 'react';
 import * as Scheduler from 'scheduler/unstable_mock';
@@ -20,9 +20,12 @@ import {
   getPublicRootInstance,
   createContainer,
   updateContainer,
-  flushSync,
+  flushSyncFromReconciler,
   injectIntoDevTools,
   batchedUpdates,
+  defaultOnUncaughtError,
+  defaultOnCaughtError,
+  defaultOnRecoverableError,
 } from 'react-reconciler/src/ReactFiberReconciler';
 import {findCurrentFiberUsingSlowPath} from 'react-reconciler/src/ReactFiberTreeReflection';
 import {
@@ -30,7 +33,7 @@ import {
   FunctionComponent,
   ClassComponent,
   HostComponent,
-  HostResource,
+  HostHoistable,
   HostSingleton,
   HostPortal,
   HostText,
@@ -50,11 +53,15 @@ import getComponentNameFromType from 'shared/getComponentNameFromType';
 import ReactVersion from 'shared/ReactVersion';
 import {checkPropStringCoercion} from 'shared/CheckStringCoercion';
 
-import {getPublicInstance} from './ReactTestHostConfig';
+import {getPublicInstance} from './ReactFiberConfigTestHost';
 import {ConcurrentRoot, LegacyRoot} from 'react-reconciler/src/ReactRootTags';
-import {allowConcurrentByDefault} from 'shared/ReactFeatureFlags';
+import {
+  enableReactTestRendererWarning,
+  disableLegacyMode,
+} from 'shared/ReactFeatureFlags';
 
-const act = React.unstable_act;
+// $FlowFixMe[prop-missing]: This is only in the development export.
+const act = React.act;
 
 // TODO: Remove from public bundle
 
@@ -62,7 +69,6 @@ type TestRendererOptions = {
   createNodeMock: (element: React$Element<any>) => any,
   unstable_isConcurrent: boolean,
   unstable_strictMode: boolean,
-  unstable_concurrentUpdatesByDefault: boolean,
   ...
 };
 
@@ -74,17 +80,16 @@ type ReactTestRendererJSON = {
 };
 type ReactTestRendererNode = ReactTestRendererJSON | string;
 
-type FindOptions = $Shape<{
+type FindOptions = {
   // performs a "greedy" search: if a matching node is found, will continue
   // to search within the matching node's children. (default: true)
-  deep: boolean,
-  ...
-}>;
+  deep?: boolean,
+};
 
 export type Predicate = (node: ReactTestInstance) => ?boolean;
 
 const defaultTestOptions = {
-  createNodeMock: function() {
+  createNodeMock: function () {
     return null;
   },
 };
@@ -100,11 +105,9 @@ function toJSON(inst: Instance | TextInstance): ReactTestRendererNode | null {
     case 'TEXT':
       return inst.text;
     case 'INSTANCE': {
-      /* eslint-disable no-unused-vars */
       // We don't include the `children` prop in JSON.
       // Instead, we will include the actual rendered children.
       const {children, ...props} = inst.props;
-      /* eslint-enable */
       let renderedChildren = null;
       if (inst.children && inst.children.length) {
         for (let i = 0; i < inst.children.length; i++) {
@@ -133,8 +136,7 @@ function toJSON(inst: Instance | TextInstance): ReactTestRendererNode | null {
   }
 }
 
-// $FlowFixMe[missing-local-annot]
-function childrenToTree(node) {
+function childrenToTree(node: null | Fiber) {
   if (!node) {
     return null;
   }
@@ -164,10 +166,14 @@ function flatten(arr) {
   const stack = [{i: 0, array: arr}];
   while (stack.length) {
     const n = stack.pop();
+    // $FlowFixMe[incompatible-use]
     while (n.i < n.array.length) {
+      // $FlowFixMe[incompatible-use]
       const el = n.array[n.i];
+      // $FlowFixMe[incompatible-use]
       n.i += 1;
       if (isArray(el)) {
+        // $FlowFixMe[incompatible-call]
         stack.push(n);
         stack.push({i: 0, array: el});
         break;
@@ -178,7 +184,7 @@ function flatten(arr) {
   return result;
 }
 
-function toTree(node: ?Fiber) {
+function toTree(node: null | Fiber): $FlowFixMe {
   if (node == null) {
     return null;
   }
@@ -204,7 +210,7 @@ function toTree(node: ?Fiber) {
         instance: null,
         rendered: childrenToTree(node.child),
       };
-    case HostResource:
+    case HostHoistable:
     case HostSingleton:
     case HostComponent: {
       return {
@@ -315,7 +321,7 @@ class ReactTestInstance {
     const tag = this._fiber.tag;
     if (
       tag === HostComponent ||
-      tag === HostResource ||
+      tag === HostHoistable ||
       tag === HostSingleton
     ) {
       return getPublicInstance(this._fiber.stateNode);
@@ -452,13 +458,6 @@ function propsMatch(props: Object, filter: Object): boolean {
   return true;
 }
 
-// $FlowFixMe[missing-local-annot]
-function onRecoverableError(error) {
-  // TODO: Expose onRecoverableError option to userspace
-  // eslint-disable-next-line react-internal/no-production-logging, react-internal/warning-args
-  console.error(error);
-}
-
 function create(
   element: React$Element<any>,
   options: TestRendererOptions,
@@ -470,32 +469,39 @@ function create(
   update(newElement: React$Element<any>): any,
   unmount(): void,
   getInstance(): React$Component<any, any> | PublicInstance | null,
-  unstable_flushSync: typeof flushSync,
+  unstable_flushSync: typeof flushSyncFromReconciler,
 } {
+  if (__DEV__) {
+    if (
+      enableReactTestRendererWarning === true &&
+      global.IS_REACT_NATIVE_TEST_ENVIRONMENT !== true
+    ) {
+      console.error(
+        'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer',
+      );
+    }
+  }
+
   let createNodeMock = defaultTestOptions.createNodeMock;
-  let isConcurrent = false;
+  const isConcurrentOnly =
+    disableLegacyMode === true &&
+    global.IS_REACT_NATIVE_TEST_ENVIRONMENT !== true;
+  let isConcurrent = isConcurrentOnly;
   let isStrictMode = false;
-  let concurrentUpdatesByDefault = null;
   if (typeof options === 'object' && options !== null) {
     if (typeof options.createNodeMock === 'function') {
       // $FlowFixMe[incompatible-type] found when upgrading Flow
       createNodeMock = options.createNodeMock;
     }
-    if (options.unstable_isConcurrent === true) {
-      isConcurrent = true;
+    if (isConcurrentOnly === false) {
+      isConcurrent = options.unstable_isConcurrent;
     }
     if (options.unstable_strictMode === true) {
       isStrictMode = true;
     }
-    if (allowConcurrentByDefault) {
-      if (options.unstable_concurrentUpdatesByDefault !== undefined) {
-        concurrentUpdatesByDefault =
-          options.unstable_concurrentUpdatesByDefault;
-      }
-    }
   }
   let container = {
-    children: [],
+    children: ([]: Array<Instance | TextInstance>),
     createNodeMock,
     tag: 'CONTAINER',
   };
@@ -504,9 +510,11 @@ function create(
     isConcurrent ? ConcurrentRoot : LegacyRoot,
     null,
     isStrictMode,
-    concurrentUpdatesByDefault,
+    false,
     '',
-    onRecoverableError,
+    defaultOnUncaughtError,
+    defaultOnCaughtError,
+    defaultOnRecoverableError,
     null,
   );
 
@@ -583,7 +591,7 @@ function create(
       return getPublicRootInstance(root);
     },
 
-    unstable_flushSync: flushSync,
+    unstable_flushSync: flushSyncFromReconciler,
   };
 
   Object.defineProperty(
@@ -592,7 +600,7 @@ function create(
     ({
       configurable: true,
       enumerable: true,
-      get: function() {
+      get: function () {
         if (root === null) {
           throw new Error("Can't access .root on unmounted test renderer");
         }
@@ -615,7 +623,7 @@ function create(
   return entry;
 }
 
-const fiberToWrapper = new WeakMap();
+const fiberToWrapper = new WeakMap<Fiber, ReactTestInstance>();
 function wrapFiber(fiber: Fiber): ReactTestInstance {
   let wrapper = fiberToWrapper.get(fiber);
   if (wrapper === undefined && fiber.alternate !== null) {
@@ -629,19 +637,12 @@ function wrapFiber(fiber: Fiber): ReactTestInstance {
 }
 
 // Enable ReactTestRenderer to be used to test DevTools integration.
-injectIntoDevTools({
-  findFiberByHostInstance: (() => {
-    throw new Error('TestRenderer does not support findFiberByHostInstance()');
-  }: any),
-  bundleType: __DEV__ ? 1 : 0,
-  version: ReactVersion,
-  rendererPackageName: 'react-test-renderer',
-});
+injectIntoDevTools();
 
 export {
   Scheduler as _Scheduler,
   create,
-  /* eslint-disable-next-line camelcase */
   batchedUpdates as unstable_batchedUpdates,
   act,
+  ReactVersion as version,
 };

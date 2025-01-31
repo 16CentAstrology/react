@@ -10,76 +10,81 @@
 import typeof * as FeatureFlagsType from 'shared/ReactFeatureFlags';
 import typeof * as ExportsType from './ReactFeatureFlags.test-renderer.www';
 
-export const debugRenderPhaseSideEffectsForStrictMode = false;
-export const enableDebugTracing = false;
+export const enableAsyncDebugInfo = false;
 export const enableSchedulingProfiler = false;
-export const warnAboutDeprecatedLifecycles = true;
-export const replayFailedUnitOfWorkWithInvokeGuardedCallback = false;
 export const enableProfilerTimer = __PROFILE__;
 export const enableProfilerCommitHooks = __PROFILE__;
 export const enableProfilerNestedUpdatePhase = __PROFILE__;
-export const enableProfilerNestedUpdateScheduledHook = false;
+export const enableComponentPerformanceTrack = false;
 export const enableUpdaterTracking = false;
-export const enableCache = true;
 export const enableLegacyCache = true;
-export const enableCacheElement = true;
-export const enableFetchInstrumentation = false;
-export const enableSchedulerDebugging = false;
-export const disableJavaScriptURLs = false;
+export const enableAsyncIterableChildren = false;
+export const enableTaint = true;
+export const enablePostpone = false;
+export const enableHalt = false;
 export const disableCommentsAsDOMContainers = true;
 export const disableInputAttributeSyncing = false;
 export const enableScopeAPI = true;
 export const enableCreateEventHandleAPI = false;
 export const enableSuspenseCallback = true;
-export const warnAboutDefaultPropsOnFunctionComponents = true;
-export const warnAboutStringRefs = true;
 export const disableLegacyContext = false;
-export const disableSchedulerTimeoutBasedOnReactExpirationTime = false;
+export const disableLegacyContextForFunctionComponents = false;
 export const enableTrustedTypesIntegration = false;
 export const disableTextareaChildren = false;
-export const disableModulePatternComponents = true;
-export const warnAboutSpreadingKeyToJSX = true;
 export const enableSuspenseAvoidThisFallback = true;
-export const enableSuspenseAvoidThisFallbackFizz = false;
 export const enableCPUSuspense = false;
-export const enableUseHook = true;
-export const enableUseMemoCacheHook = false;
+export const enableNoCloningMemoCache = false;
 export const enableUseEffectEventHook = false;
-export const enableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay = true;
-export const enableClientRenderFallbackOnTextMismatch = true;
-export const enableComponentStackLocations = true;
+export const favorSafetyOverHydrationPerf = true;
 export const enableLegacyFBSupport = false;
-export const enableFilterEmptyStringAttributesDOM = false;
-export const disableNativeComponentFrames = false;
-export const skipUnmountedBoundaries = false;
-export const deletedTreeCleanUpLevel = 3;
-export const enableGetInspectorDataForInstanceInProduction = false;
-export const deferRenderPhaseUpdateToNextBatch = false;
+export const enableMoveBefore = false;
+export const enableRenderableContext = false;
+export const enableFabricCompleteRootInCommitPhase = false;
+export const enableHiddenSubtreeInsertionEffectCleanup = true;
 
-export const createRootStrictEffectsByDefault = false;
-export const enableUseRefAccessWarning = false;
+export const enableRetryLaneExpiration = false;
+export const retryLaneExpirationMs = 5000;
+export const syncLaneExpirationMs = 250;
+export const transitionLaneExpirationMs = 5000;
 
 export const disableSchedulerTimeoutInWorkLoop = false;
-export const enableLazyContextPropagation = false;
 export const enableLegacyHidden = false;
-export const enableSyncDefaultUpdates = true;
-export const enableUnifiedSyncLane = false;
-export const allowConcurrentByDefault = true;
-export const enableCustomElementPropertySupport = false;
-
-export const consoleManagedByDevToolsDuringStrictMode = false;
-export const enableServerContext = true;
-
-// Some www surfaces are still using this. Remove once they have been migrated.
-export const enableUseMutableSource = true;
 
 export const enableTransitionTracing = false;
 
-export const enableFloat = true;
-export const enableHostSingletons = true;
-
-export const useModernStrictMode = false;
+export const enableDO_NOT_USE_disableStrictPassiveEffect = false;
 export const enableFizzExternalRuntime = false;
+
+export const alwaysThrottleRetries = true;
+
+export const passChildrenWhenCloningPersistedNodes = false;
+export const enablePersistedModeClonedFlag = false;
+export const disableClientCache = true;
+
+export const enableInfiniteRenderLoopDetection = false;
+
+export const enableReactTestRendererWarning = false;
+export const disableLegacyMode = true;
+
+export const disableDefaultPropsExceptForClasses = true;
+
+export const renameElementSymbol = false;
+
+export const enableObjectFiber = false;
+export const enableOwnerStacks = false;
+export const enableShallowPropDiffing = false;
+export const enableSiblingPrerendering = true;
+
+export const enableUseResourceEffectHook = false;
+
+export const enableHydrationLaneScheduling = true;
+
+export const enableYieldingBeforePassive = false;
+
+export const enableThrottledScheduling = false;
+export const enableViewTransition = false;
+export const enableRemoveConsolePatches = false;
+export const enableFastAddPropertiesInDiffing = false;
 
 // Flow magic to verify the exports of this file match the original version.
 ((((null: any): ExportsType): FeatureFlagsType): ExportsType);

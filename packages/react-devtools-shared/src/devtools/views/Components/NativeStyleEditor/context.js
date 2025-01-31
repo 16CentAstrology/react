@@ -18,7 +18,6 @@ import {
   useMemo,
   useState,
 } from 'react';
-import {unstable_batchedUpdates as batchedUpdates} from 'react-dom';
 import {createResource} from 'react-devtools-shared/src/devtools/cache';
 import {
   BridgeContext,
@@ -31,7 +30,7 @@ import type {FrontendBridge} from 'react-devtools-shared/src/bridge';
 import type Store from 'react-devtools-shared/src/devtools/store';
 import type {StyleAndLayout as StyleAndLayoutBackend} from 'react-devtools-shared/src/backend/NativeStyleEditor/types';
 import type {StyleAndLayout as StyleAndLayoutFrontend} from './types';
-import type {Element} from 'react-devtools-shared/src/devtools/views/Components/types';
+import type {Element} from 'react-devtools-shared/src/frontend/types';
 import type {
   Resource,
   Thenable,
@@ -55,33 +54,30 @@ type InProgressRequest = {
 };
 
 const inProgressRequests: WeakMap<Element, InProgressRequest> = new WeakMap();
-const resource: Resource<
-  Element,
-  Element,
-  StyleAndLayoutFrontend,
-> = createResource(
-  (element: Element) => {
-    const request = inProgressRequests.get(element);
-    if (request != null) {
-      return request.promise;
-    }
+const resource: Resource<Element, Element, StyleAndLayoutFrontend> =
+  createResource(
+    (element: Element) => {
+      const request = inProgressRequests.get(element);
+      if (request != null) {
+        return request.promise;
+      }
 
-    let resolveFn:
-      | ResolveFn
-      | ((
-          result: Promise<StyleAndLayoutFrontend> | StyleAndLayoutFrontend,
-        ) => void) = ((null: any): ResolveFn);
-    const promise = new Promise(resolve => {
-      resolveFn = resolve;
-    });
+      let resolveFn:
+        | ResolveFn
+        | ((
+            result: Promise<StyleAndLayoutFrontend> | StyleAndLayoutFrontend,
+          ) => void) = ((null: any): ResolveFn);
+      const promise = new Promise(resolve => {
+        resolveFn = resolve;
+      });
 
-    inProgressRequests.set(element, {promise, resolveFn});
+      inProgressRequests.set(element, ({promise, resolveFn}: $FlowFixMe));
 
-    return promise;
-  },
-  (element: Element) => element,
-  {useWeakMap: true},
-);
+      return (promise: $FlowFixMe);
+    },
+    (element: Element) => element,
+    {useWeakMap: true},
+  );
 
 type Props = {
   children: React$Node,
@@ -103,15 +99,13 @@ function NativeStyleContextController({children}: Props): React.Node {
     [store],
   );
 
-  // It's very important that this context consumes selectedElementID and not NativeStyleID.
+  // It's very important that this context consumes inspectedElementID and not NativeStyleID.
   // Otherwise the effect that sends the "inspect" message across the bridge-
   // would itself be blocked by the same render that suspends (waiting for the data).
-  const {selectedElementID} = useContext<StateContext>(TreeStateContext);
+  const {inspectedElementID} = useContext<StateContext>(TreeStateContext);
 
-  const [
-    currentStyleAndLayout,
-    setCurrentStyleAndLayout,
-  ] = useState<StyleAndLayoutFrontend | null>(null);
+  const [currentStyleAndLayout, setCurrentStyleAndLayout] =
+    useState<StyleAndLayoutFrontend | null>(null);
 
   // This effect handler invalidates the suspense cache and schedules rendering updates with React.
   useEffect(() => {
@@ -125,15 +119,13 @@ function NativeStyleContextController({children}: Props): React.Node {
         const request = inProgressRequests.get(element);
         if (request != null) {
           inProgressRequests.delete(element);
-          batchedUpdates(() => {
-            request.resolveFn(styleAndLayout);
-            setCurrentStyleAndLayout(styleAndLayout);
-          });
+          request.resolveFn(styleAndLayout);
+          setCurrentStyleAndLayout(styleAndLayout);
         } else {
           resource.write(element, styleAndLayout);
 
           // Schedule update with React if the currently-selected element has been invalidated.
-          if (id === selectedElementID) {
+          if (id === inspectedElementID) {
             setCurrentStyleAndLayout(styleAndLayout);
           }
         }
@@ -146,15 +138,15 @@ function NativeStyleContextController({children}: Props): React.Node {
         'NativeStyleEditor_styleAndLayout',
         onStyleAndLayout,
       );
-  }, [bridge, currentStyleAndLayout, selectedElementID, store]);
+  }, [bridge, currentStyleAndLayout, inspectedElementID, store]);
 
   // This effect handler polls for updates on the currently selected element.
   useEffect(() => {
-    if (selectedElementID === null) {
+    if (inspectedElementID === null) {
       return () => {};
     }
 
-    const rendererID = store.getRendererIDForElement(selectedElementID);
+    const rendererID = store.getRendererIDForElement(inspectedElementID);
 
     let timeoutID: TimeoutID | null = null;
 
@@ -163,7 +155,7 @@ function NativeStyleContextController({children}: Props): React.Node {
 
       if (rendererID !== null) {
         bridge.send('NativeStyleEditor_measure', {
-          id: selectedElementID,
+          id: inspectedElementID,
           rendererID,
         });
       }
@@ -175,7 +167,7 @@ function NativeStyleContextController({children}: Props): React.Node {
 
     const onStyleAndLayout = ({id}: StyleAndLayoutBackend) => {
       // If this is the element we requested, wait a little bit and then ask for another update.
-      if (id === selectedElementID) {
+      if (id === inspectedElementID) {
         if (timeoutID !== null) {
           clearTimeout(timeoutID);
         }
@@ -195,7 +187,7 @@ function NativeStyleContextController({children}: Props): React.Node {
         clearTimeout(timeoutID);
       }
     };
-  }, [bridge, selectedElementID, store]);
+  }, [bridge, inspectedElementID, store]);
 
   const value = useMemo(
     () => ({getStyleAndLayout}),

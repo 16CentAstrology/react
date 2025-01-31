@@ -8,6 +8,7 @@ const devToolsUtils = require('./devtools-utils');
 const {test, expect} = require('@playwright/test');
 const config = require('../../playwright.config');
 const semver = require('semver');
+
 test.use(config);
 test.describe('Components', () => {
   let page;
@@ -59,49 +60,82 @@ test.describe('Components', () => {
     const isEditableValue = semver.gte(config.use.react_version, '16.8.0');
 
     // Then read the inspected values.
-    const [propName, propValue, sourceText] = await page.evaluate(
+    const {
+      name: propName,
+      value: propValue,
+      existingNameElementsSize,
+      existingValueElementsSize,
+    } = await page.evaluate(
       isEditable => {
-        const {
-          createTestNameSelector,
-          findAllNodes,
-        } = window.REACT_DOM_DEVTOOLS;
+        const {createTestNameSelector, findAllNodes} =
+          window.REACT_DOM_DEVTOOLS;
         const container = document.getElementById('devtools');
 
         // Get name of first prop
-        const selectorName = isEditable.name
+        const nameSelector = isEditable.name
           ? 'EditableName'
           : 'NonEditableName';
-        const nameElement = findAllNodes(container, [
-          createTestNameSelector('InspectedElementPropsTree'),
-          createTestNameSelector(selectorName),
-        ])[0];
-        const name = isEditable.name
-          ? nameElement.value
-          : nameElement.innerText;
-
         // Get value of first prop
-        const selectorValue = isEditable.value
+        const valueSelector = isEditable.value
           ? 'EditableValue'
           : 'NonEditableValue';
-        const valueElement = findAllNodes(container, [
-          createTestNameSelector('InspectedElementPropsTree'),
-          createTestNameSelector(selectorValue),
-        ])[0];
-        const source = findAllNodes(container, [
-          createTestNameSelector('InspectedElementView-Source'),
-        ])[0];
-        const value = isEditable.value
-          ? valueElement.value
-          : valueElement.innerText;
 
-        return [name, value, source.innerText];
+        const existingNameElements = findAllNodes(container, [
+          createTestNameSelector('InspectedElementPropsTree'),
+          createTestNameSelector('KeyValue'),
+          createTestNameSelector(nameSelector),
+        ]);
+        const existingValueElements = findAllNodes(container, [
+          createTestNameSelector('InspectedElementPropsTree'),
+          createTestNameSelector('KeyValue'),
+          createTestNameSelector(valueSelector),
+        ]);
+
+        const name = isEditable.name
+          ? existingNameElements[0].value
+          : existingNameElements[0].innerText;
+        const value = isEditable.value
+          ? existingValueElements[0].value
+          : existingValueElements[0].innerText;
+
+        return {
+          name,
+          value,
+          existingNameElementsSize: existingNameElements.length,
+          existingValueElementsSize: existingValueElements.length,
+        };
       },
       {name: isEditableName, value: isEditableValue}
     );
 
+    expect(existingNameElementsSize).toBe(1);
+    expect(existingValueElementsSize).toBe(1);
     expect(propName).toBe('label');
     expect(propValue).toBe('"one"');
-    expect(sourceText).toMatch(/ListApp[a-zA-Z]*\.js/);
+  });
+
+  test('Should allow inspecting source of the element', async () => {
+    // Source inspection is available only in modern renderer.
+    runOnlyForReactRange('>=16.8');
+
+    // Select the first list item in DevTools.
+    await devToolsUtils.selectElement(page, 'ListItem', 'List\nApp', true);
+
+    // Then read the inspected values.
+    const sourceText = await page.evaluate(() => {
+      const {createTestNameSelector, findAllNodes} = window.REACT_DOM_DEVTOOLS;
+      const container = document.getElementById('devtools');
+
+      const source = findAllNodes(container, [
+        createTestNameSelector('InspectedElementView-FormattedSourceString'),
+      ])[0];
+
+      return source.innerText;
+    });
+
+    // If React version is specified, the e2e-regression.html page will be used
+    // If not, then e2e.html, see playwright.config.js, how url is constructed
+    expect(sourceText).toMatch(/e2e-app[\-a-zA-Z]*\.js/);
   });
 
   test('should allow props to be edited', async () => {
@@ -117,6 +151,7 @@ test.describe('Components', () => {
 
       focusWithin(container, [
         createTestNameSelector('InspectedElementPropsTree'),
+        createTestNameSelector('KeyValue'),
         createTestNameSelector('EditableValue'),
       ]);
     });
@@ -150,10 +185,8 @@ test.describe('Components', () => {
     // Make sure the expected hook names are parsed and displayed eventually.
     await page.waitForFunction(
       hookNames => {
-        const {
-          createTestNameSelector,
-          findAllNodes,
-        } = window.REACT_DOM_DEVTOOLS;
+        const {createTestNameSelector, findAllNodes} =
+          window.REACT_DOM_DEVTOOLS;
         const container = document.getElementById('devtools');
 
         const hooksTree = findAllNodes(container, [
@@ -181,10 +214,8 @@ test.describe('Components', () => {
   test('should allow searching for component by name', async () => {
     async function getComponentSearchResultsCount() {
       return await page.evaluate(() => {
-        const {
-          createTestNameSelector,
-          findAllNodes,
-        } = window.REACT_DOM_DEVTOOLS;
+        const {createTestNameSelector, findAllNodes} =
+          window.REACT_DOM_DEVTOOLS;
         const container = document.getElementById('devtools');
 
         const element = findAllNodes(container, [
@@ -206,35 +237,35 @@ test.describe('Components', () => {
     }
 
     await focusComponentSearch();
-    page.keyboard.insertText('List');
+    await page.keyboard.insertText('List');
     let count = await getComponentSearchResultsCount();
     expect(count).toBe('1 | 4');
 
-    page.keyboard.insertText('Item');
+    await page.keyboard.insertText('Item');
     count = await getComponentSearchResultsCount();
     expect(count).toBe('1 | 3');
 
-    page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
     count = await getComponentSearchResultsCount();
     expect(count).toBe('2 | 3');
 
-    page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
     count = await getComponentSearchResultsCount();
     expect(count).toBe('3 | 3');
 
-    page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
     count = await getComponentSearchResultsCount();
     expect(count).toBe('1 | 3');
 
-    page.keyboard.press('Shift+Enter');
+    await page.keyboard.press('Shift+Enter');
     count = await getComponentSearchResultsCount();
     expect(count).toBe('3 | 3');
 
-    page.keyboard.press('Shift+Enter');
+    await page.keyboard.press('Shift+Enter');
     count = await getComponentSearchResultsCount();
     expect(count).toBe('2 | 3');
 
-    page.keyboard.press('Shift+Enter');
+    await page.keyboard.press('Shift+Enter');
     count = await getComponentSearchResultsCount();
     expect(count).toBe('1 | 3');
   });

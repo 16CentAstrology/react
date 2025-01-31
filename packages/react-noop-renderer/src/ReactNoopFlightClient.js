@@ -14,17 +14,30 @@
  * environment.
  */
 
+import type {FindSourceMapURLCallback} from 'react-client/flight';
+
 import {readModule} from 'react-noop-renderer/flight-modules';
 
 import ReactFlightClient from 'react-client/flight';
 
-type Source = Array<string>;
+type Source = Array<Uint8Array>;
 
-const {createResponse, processStringChunk, getRoot, close} = ReactFlightClient({
-  supportsBinaryStreams: false,
-  resolveModuleReference(bundlerConfig: null, idx: string) {
+const decoderOptions = {stream: true};
+
+const {createResponse, processBinaryChunk, getRoot} = ReactFlightClient({
+  createStringDecoder() {
+    return new TextDecoder();
+  },
+  readPartialStringChunk(decoder: TextDecoder, buffer: Uint8Array): string {
+    return decoder.decode(buffer, decoderOptions);
+  },
+  readFinalStringChunk(decoder: TextDecoder, buffer: Uint8Array): string {
+    return decoder.decode(buffer);
+  },
+  resolveClientReference(bundlerConfig: null, idx: string) {
     return idx;
   },
+  prepareDestinationForModule(moduleLoading: null, metadata: string) {},
   preloadModule(idx: string) {},
   requireModule(idx: string) {
     return readModule(idx);
@@ -32,14 +45,35 @@ const {createResponse, processStringChunk, getRoot, close} = ReactFlightClient({
   parseModel(response: Response, json) {
     return JSON.parse(json, response._fromJSON);
   },
+  bindToConsole(methodName, args, badgeName) {
+    return Function.prototype.bind.apply(
+      // eslint-disable-next-line react-internal/no-production-logging
+      console[methodName],
+      [console].concat(args),
+    );
+  },
 });
 
-function read<T>(source: Source): Thenable<T> {
-  const response = createResponse(source, null);
+type ReadOptions = {|
+  findSourceMapURL?: FindSourceMapURLCallback,
+|};
+
+function read<T>(source: Source, options: ReadOptions): Thenable<T> {
+  const response = createResponse(
+    source,
+    null,
+    null,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    options !== undefined ? options.findSourceMapURL : undefined,
+    true,
+    undefined,
+  );
   for (let i = 0; i < source.length; i++) {
-    processStringChunk(response, source[i], 0);
+    processBinaryChunk(response, source[i], 0);
   }
-  close(response);
   return getRoot(response);
 }
 

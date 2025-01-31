@@ -9,7 +9,7 @@
 
 import {copy} from 'clipboard-js';
 import * as React from 'react';
-import {useCallback, useContext, useRef, useState} from 'react';
+import {useCallback, useContext, useState} from 'react';
 import {BridgeContext, StoreContext} from '../context';
 import Button from '../Button';
 import ButtonIcon from '../ButtonIcon';
@@ -19,21 +19,16 @@ import KeyValue from './KeyValue';
 import {getMetaValueLabel, serializeHooksForCopy} from '../utils';
 import Store from '../../store';
 import styles from './InspectedElementHooksTree.css';
-import useContextMenu from '../../ContextMenu/useContextMenu';
 import {meta} from '../../../hydration';
 import {getHookSourceLocationKey} from 'react-devtools-shared/src/hookNamesCache';
-import {
-  enableNamedHooksFeature,
-  enableProfilerChangedHookIndices,
-} from 'react-devtools-feature-flags';
 import HookNamesModuleLoaderContext from 'react-devtools-shared/src/devtools/views/Components/HookNamesModuleLoaderContext';
 import isArray from 'react-devtools-shared/src/isArray';
 
-import type {InspectedElement} from './types';
+import type {InspectedElement} from 'react-devtools-shared/src/frontend/types';
 import type {HooksNode, HooksTree} from 'react-debug-tools/src/ReactDebugHooks';
 import type {FrontendBridge} from 'react-devtools-shared/src/bridge';
-import type {HookNames} from 'react-devtools-shared/src/types';
-import type {Element} from 'react-devtools-shared/src/devtools/views/Components/types';
+import type {HookNames} from 'react-devtools-shared/src/frontend/types';
+import type {Element} from 'react-devtools-shared/src/frontend/types';
 import type {ToggleParseHookNames} from './InspectedElementContext';
 
 type HooksTreeViewProps = {
@@ -59,9 +54,8 @@ export function InspectedElementHooksTree({
 
   // Changing parseHookNames is done in a transition, because it suspends.
   // This value is done outside of the transition, so the UI toggle feels responsive.
-  const [parseHookNamesOptimistic, setParseHookNamesOptimistic] = useState(
-    parseHookNames,
-  );
+  const [parseHookNamesOptimistic, setParseHookNamesOptimistic] =
+    useState(parseHookNames);
   const handleChange = () => {
     setParseHookNamesOptimistic(!parseHookNames);
     toggleParseHookNames();
@@ -86,13 +80,10 @@ export function InspectedElementHooksTree({
     return null;
   } else {
     return (
-      <div
-        className={styles.HooksTreeView}
-        data-testname="InspectedElementHooksTree">
+      <div data-testname="InspectedElementHooksTree">
         <div className={styles.HeaderRow}>
           <div className={styles.Header}>hooks</div>
-          {enableNamedHooksFeature &&
-            typeof hookNamesModuleLoader === 'function' &&
+          {typeof hookNamesModuleLoader === 'function' &&
             (!parseHookNames || hookParsingFailed) && (
               <Toggle
                 className={hookParsingFailed ? styles.ToggleError : null}
@@ -168,11 +159,8 @@ function HookView({
   inspectedElement,
   path,
 }: HookViewProps) {
-  const {
-    canEditHooks,
-    canEditHooksAndDeletePaths,
-    canEditHooksAndRenamePaths,
-  } = inspectedElement;
+  const {canEditHooks, canEditHooksAndDeletePaths, canEditHooksAndRenamePaths} =
+    inspectedElement;
   const {id: hookID, isStateEditable, subHooks, value} = hook;
 
   const isReadOnly = hookID == null || !isStateEditable;
@@ -190,22 +178,6 @@ function HookView({
     () => setIsOpen(prevIsOpen => !prevIsOpen),
     [],
   );
-
-  const contextMenuTriggerRef = useRef(null);
-
-  useContextMenu({
-    data: {
-      path: ['hooks', ...path],
-      type:
-        hook !== null &&
-        typeof hook === 'object' &&
-        hook.hasOwnProperty(meta.type)
-          ? hook[(meta.type: any)]
-          : typeof value,
-    },
-    id: 'InspectedElement',
-    ref: contextMenuTriggerRef,
-  });
 
   if (hook.hasOwnProperty(meta.inspected)) {
     // This Hook is too deep and hasn't been hydrated.
@@ -229,15 +201,13 @@ function HookView({
   const isCustomHook = subHooks.length > 0;
 
   let name = hook.name;
-  if (enableProfilerChangedHookIndices) {
-    if (hookID !== null) {
-      name = (
-        <>
-          <span className={styles.PrimitiveHookNumber}>{hookID + 1}</span>
-          {name}
-        </>
-      );
-    }
+  if (hookID !== null) {
+    name = (
+      <>
+        <span className={styles.PrimitiveHookNumber}>{hookID + 1}</span>
+        {name}
+      </>
+    );
   }
 
   const type = typeof value;
@@ -312,7 +282,7 @@ function HookView({
     if (isComplexDisplayValue) {
       return (
         <div className={styles.Hook}>
-          <div ref={contextMenuTriggerRef} className={styles.NameValueRow}>
+          <div className={styles.NameValueRow}>
             <ExpandCollapseToggle isOpen={isOpen} setIsOpen={setIsOpen} />
             <span
               onClick={toggleIsOpen}
@@ -349,7 +319,7 @@ function HookView({
     } else {
       return (
         <div className={styles.Hook}>
-          <div ref={contextMenuTriggerRef} className={styles.NameValueRow}>
+          <div className={styles.NameValueRow}>
             <ExpandCollapseToggle isOpen={isOpen} setIsOpen={setIsOpen} />
             <span
               onClick={toggleIsOpen}
@@ -405,7 +375,7 @@ function HookView({
             hookName={hookName}
             inspectedElement={inspectedElement}
             name={name}
-            path={[]}
+            path={path.concat(['value'])}
             pathRoot="hooks"
             store={store}
             value={value}

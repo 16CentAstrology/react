@@ -18,14 +18,16 @@ import type {Fiber} from 'react-reconciler/src/ReactInternalTypes';
 import type {Wakeable} from 'shared/ReactTypes';
 import type {
   BatchUID,
+  InternalModuleSourceToRanges,
   LaneToLabelMap,
   ReactComponentMeasure,
+  ReactLane,
   ReactMeasure,
   ReactMeasureType,
-  TimelineData,
-  SuspenseEvent,
-  SchedulingEvent,
   ReactScheduleStateUpdateEvent,
+  SchedulingEvent,
+  SuspenseEvent,
+  TimelineData,
 } from 'react-devtools-timeline/src/types';
 
 import isArray from 'shared/isArray';
@@ -33,7 +35,7 @@ import {
   REACT_TOTAL_NUM_LANES,
   SCHEDULING_PROFILER_VERSION,
 } from 'react-devtools-timeline/src/constants';
-import {describeFiber} from './DevToolsFiberComponentStack';
+import {describeFiber} from './fiber/DevToolsFiberComponentStack';
 
 // Add padding to the start/stop time of the profile.
 // This makes the UI nicer to use.
@@ -52,17 +54,19 @@ let supportsUserTiming =
 let supportsUserTimingV3 = false;
 if (supportsUserTiming) {
   const CHECK_V3_MARK = '__v3';
-  const markOptions = ({}: {startTime?: number});
+  const markOptions: {
+    detail?: mixed,
+    startTime?: number,
+  } = {};
   Object.defineProperty(markOptions, 'startTime', {
-    get: function() {
+    get: function () {
       supportsUserTimingV3 = true;
       return 0;
     },
-    set: function() {},
+    set: function () {},
   });
 
   try {
-    // $FlowFixMe: Flow expects the User Timing level 2 API.
     performance.mark(CHECK_V3_MARK, markOptions);
   } catch (error) {
     // Ignore
@@ -93,7 +97,10 @@ export function setPerformanceMock_ONLY_FOR_TESTING(
 }
 
 export type GetTimelineData = () => TimelineData | null;
-export type ToggleProfilingStatus = (value: boolean) => void;
+export type ToggleProfilingStatus = (
+  value: boolean,
+  recordTimeline?: boolean,
+) => void;
 
 type Response = {
   getTimelineData: GetTimelineData,
@@ -237,10 +244,8 @@ export function createProfilingHooks({
     currentReactMeasuresStack.push(reactMeasure);
 
     if (currentTimelineData) {
-      const {
-        batchUIDToMeasuresMap,
-        laneToReactMeasureMap,
-      } = currentTimelineData;
+      const {batchUIDToMeasuresMap, laneToReactMeasureMap} =
+        currentTimelineData;
 
       let reactMeasures = batchUIDToMeasuresMap.get(currentBatchUID);
       if (reactMeasures != null) {
@@ -272,16 +277,19 @@ export function createProfilingHooks({
     }
 
     const top = currentReactMeasuresStack.pop();
+    // $FlowFixMe[incompatible-type]
     if (top.type !== type) {
       console.error(
         'Unexpected type "%s" completed at %sms before "%s" completed.',
         type,
         currentTime,
+        // $FlowFixMe[incompatible-use]
         top.type,
       );
     }
 
-    // $FlowFixMe This property should not be writable outside of this function.
+    // $FlowFixMe[cannot-write] This property should not be writable outside of this function.
+    // $FlowFixMe[incompatible-use]
     top.duration = currentTime - top.timestamp;
 
     if (currentTimelineData) {
@@ -590,7 +598,7 @@ export function createProfilingHooks({
 
   const PossiblyWeakMap = typeof WeakMap === 'function' ? WeakMap : Map;
 
-  // $FlowFixMe: Flow cannot handle polymorphic WeakMaps
+  // $FlowFixMe[incompatible-type]: Flow cannot handle polymorphic WeakMaps
   const wakeableIDs: WeakMap<Wakeable, number> = new PossiblyWeakMap();
   let wakeableID: number = 0;
   function getWakeableID(wakeable: Wakeable): number {
@@ -834,12 +842,16 @@ export function createProfilingHooks({
     }
   }
 
-  function toggleProfilingStatus(value: boolean) {
+  function toggleProfilingStatus(
+    value: boolean,
+    recordTimeline: boolean = false,
+  ) {
     if (isProfiling !== value) {
       isProfiling = value;
 
       if (isProfiling) {
-        const internalModuleSourceToRanges = new Map();
+        const internalModuleSourceToRanges: InternalModuleSourceToRanges =
+          new Map();
 
         if (supportsUserTimingV3) {
           const ranges = getInternalModuleRanges();
@@ -858,7 +870,7 @@ export function createProfilingHooks({
           }
         }
 
-        const laneToReactMeasureMap = new Map();
+        const laneToReactMeasureMap = new Map<ReactLane, ReactMeasure[]>();
         let lane = 1;
         for (let index = 0; index < REACT_TOTAL_NUM_LANES; index++) {
           laneToReactMeasureMap.set(lane, []);
@@ -869,34 +881,45 @@ export function createProfilingHooks({
         currentReactComponentMeasure = null;
         currentReactMeasuresStack = [];
         currentFiberStacks = new Map();
-        currentTimelineData = {
-          // Session wide metadata; only collected once.
-          internalModuleSourceToRanges,
-          laneToLabelMap: laneToLabelMap || new Map(),
-          reactVersion,
+        if (recordTimeline) {
+          currentTimelineData = {
+            // Session wide metadata; only collected once.
+            internalModuleSourceToRanges,
+            laneToLabelMap: laneToLabelMap || new Map(),
+            reactVersion,
 
-          // Data logged by React during profiling session.
-          componentMeasures: [],
-          schedulingEvents: [],
-          suspenseEvents: [],
-          thrownErrors: [],
+            // Data logged by React during profiling session.
+            componentMeasures: [],
+            schedulingEvents: [],
+            suspenseEvents: [],
+            thrownErrors: [],
 
-          // Data inferred based on what React logs.
-          batchUIDToMeasuresMap: new Map(),
-          duration: 0,
-          laneToReactMeasureMap,
-          startTime: 0,
+            // Data inferred based on what React logs.
+            batchUIDToMeasuresMap: new Map(),
+            duration: 0,
+            laneToReactMeasureMap,
+            startTime: 0,
 
-          // Data only available in Chrome profiles.
-          flamechart: [],
-          nativeEvents: [],
-          networkMeasures: [],
-          otherUserTimingMarks: [],
-          snapshots: [],
-          snapshotHeight: 0,
-        };
+            // Data only available in Chrome profiles.
+            flamechart: [],
+            nativeEvents: [],
+            networkMeasures: [],
+            otherUserTimingMarks: [],
+            snapshots: [],
+            snapshotHeight: 0,
+          };
+        }
         nextRenderShouldStartNewBatch = true;
       } else {
+        // This is __EXPENSIVE__.
+        // We could end up with hundreds of state updated, and for each one of them
+        // would try to create a component stack with possibly hundreds of Fibers.
+        // Creating a cache of component stacks won't help, generating a single stack is already expensive enough.
+        // We should find a way to lazily generate component stacks on demand, when user inspects a specific event.
+        // If we succeed with moving React DevTools Timeline Profiler to Performance panel, then Timeline Profiler would probably be removed.
+        // If not, then once enableOwnerStacks is adopted, revisit this again and cache component stacks per Fiber,
+        // but only return them when needed, sending hundreds of component stacks is beyond the Bridge's bandwidth.
+
         // Postprocess Profile data
         if (currentTimelineData !== null) {
           currentTimelineData.schedulingEvents.forEach(event => {

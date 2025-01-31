@@ -1,5 +1,5 @@
 /**
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -24,9 +24,9 @@ export default function LargeSubtree(): React.Node {
     window.requestAnimationFrame(() => {
       const afterRenderTime = performance.now();
       console.log(
-        `Time spent on ${
-          showList ? 'unmounting' : 'mounting'
-        } the subtree: ${afterRenderTime - startTime}ms`,
+        `Time spent on ${showList ? 'unmounting' : 'mounting'} the subtree: ${
+          afterRenderTime - startTime
+        }ms`,
       );
     });
   };

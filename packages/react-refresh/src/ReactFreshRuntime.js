@@ -7,14 +7,12 @@
  * @flow
  */
 
-import type {Instance} from 'react-reconciler/src/ReactFiberHostConfig';
 import type {FiberRoot} from 'react-reconciler/src/ReactInternalTypes';
 import type {
   Family,
   RefreshUpdate,
   ScheduleRefresh,
   ScheduleRoot,
-  FindHostInstancesForRefresh,
   SetRefreshHandler,
 } from 'react-reconciler/src/ReactFiberHotReloading';
 import type {ReactNodeList} from 'shared/ReactTypes';
@@ -29,7 +27,6 @@ type Signature = {
 };
 
 type RendererHelpers = {
-  findHostInstancesForRefresh: FindHostInstancesForRefresh,
   scheduleRefresh: ScheduleRefresh,
   scheduleRoot: ScheduleRoot,
   setRefreshHandler: SetRefreshHandler,
@@ -47,17 +44,14 @@ const PossiblyWeakMap = typeof WeakMap === 'function' ? WeakMap : Map;
 // We never remove these associations.
 // It's OK to reference families, but use WeakMap/Set for types.
 const allFamiliesByID: Map<string, Family> = new Map();
-const allFamiliesByType:
-  | WeakMap<any, Family>
-  | Map<any, Family> = new PossiblyWeakMap();
-const allSignaturesByType:
-  | WeakMap<any, Signature>
-  | Map<any, Signature> = new PossiblyWeakMap();
+const allFamiliesByType: WeakMap<any, Family> | Map<any, Family> =
+  new PossiblyWeakMap();
+const allSignaturesByType: WeakMap<any, Signature> | Map<any, Signature> =
+  new PossiblyWeakMap();
 // This WeakMap is read by React, so we only put families
 // that have actually been edited here. This keeps checks fast.
-const updatedFamiliesByType:
-  | WeakMap<any, Family>
-  | Map<any, Family> = new PossiblyWeakMap();
+const updatedFamiliesByType: WeakMap<any, Family> | Map<any, Family> =
+  new PossiblyWeakMap();
 
 // This is cleared on every performReactRefresh() call.
 // It is an array of [Family, NextType] tuples.
@@ -152,6 +146,21 @@ function canPreserveStateBetween(prevType: any, nextType: any) {
   if (isReactClass(prevType) || isReactClass(nextType)) {
     return false;
   }
+
+  if (typeof prevType !== typeof nextType) {
+    return false;
+  } else if (
+    typeof prevType === 'object' &&
+    prevType !== null &&
+    nextType !== null
+  ) {
+    if (
+      getProperty(prevType, '$$typeof') !== getProperty(nextType, '$$typeof')
+    ) {
+      return false;
+    }
+  }
+
   if (haveEqualSignatures(prevType, nextType)) {
     return true;
   }
@@ -165,14 +174,14 @@ function resolveFamily(type: any) {
 
 // If we didn't care about IE11, we could use new Map/Set(iterable).
 function cloneMap<K, V>(map: Map<K, V>): Map<K, V> {
-  const clone = new Map();
+  const clone = new Map<K, V>();
   map.forEach((value, key) => {
     clone.set(key, value);
   });
   return clone;
 }
 function cloneSet<T>(set: Set<T>): Set<T> {
-  const clone = new Set();
+  const clone = new Set<T>();
   set.forEach(value => {
     clone.add(value);
   });
@@ -186,6 +195,18 @@ function getProperty(object: any, property: string) {
   } catch (err) {
     // Intentionally ignore.
     return undefined;
+  }
+}
+
+function registerRefreshUpdate(
+  update: RefreshUpdate,
+  family: Family,
+  shouldPreserveState: boolean,
+) {
+  if (shouldPreserveState) {
+    update.updatedFamilies.add(family);
+  } else {
+    update.staleFamilies.add(family);
   }
 }
 
@@ -204,8 +225,13 @@ export function performReactRefresh(): RefreshUpdate | null {
 
   isPerformingRefresh = true;
   try {
-    const staleFamilies = new Set();
-    const updatedFamilies = new Set();
+    const staleFamilies = new Set<Family>();
+    const updatedFamilies = new Set<Family>();
+    // TODO: rename these fields to something more meaningful.
+    const update: RefreshUpdate = {
+      updatedFamilies, // Families that will re-render preserving state
+      staleFamilies, // Families that will be remounted
+    };
 
     const updates = pendingUpdates;
     pendingUpdates = [];
@@ -217,19 +243,33 @@ export function performReactRefresh(): RefreshUpdate | null {
       updatedFamiliesByType.set(nextType, family);
       family.current = nextType;
 
-      // Determine whether this should be a re-render or a re-mount.
-      if (canPreserveStateBetween(prevType, nextType)) {
-        updatedFamilies.add(family);
-      } else {
-        staleFamilies.add(family);
-      }
-    });
+      const shouldPreserveState = canPreserveStateBetween(prevType, nextType);
 
-    // TODO: rename these fields to something more meaningful.
-    const update: RefreshUpdate = {
-      updatedFamilies, // Families that will re-render preserving state
-      staleFamilies, // Families that will be remounted
-    };
+      if (typeof prevType === 'object' && prevType !== null) {
+        const nextFamily = {
+          current:
+            getProperty(nextType, '$$typeof') === REACT_FORWARD_REF_TYPE
+              ? nextType.render
+              : getProperty(nextType, '$$typeof') === REACT_MEMO_TYPE
+                ? nextType.type
+                : nextType,
+        };
+        switch (getProperty(prevType, '$$typeof')) {
+          case REACT_FORWARD_REF_TYPE: {
+            updatedFamiliesByType.set(prevType.render, nextFamily);
+            registerRefreshUpdate(update, nextFamily, shouldPreserveState);
+            break;
+          }
+          case REACT_MEMO_TYPE:
+            updatedFamiliesByType.set(prevType.type, nextFamily);
+            registerRefreshUpdate(update, nextFamily, shouldPreserveState);
+            break;
+        }
+      }
+
+      // Determine whether this should be a re-render or a re-mount.
+      registerRefreshUpdate(update, family, shouldPreserveState);
+    });
 
     helpersByRendererID.forEach(helpers => {
       // Even if there are no roots, set the handler on first update.
@@ -417,34 +457,6 @@ export function getFamilyByType(type: any): Family | void {
   }
 }
 
-export function findAffectedHostInstances(
-  families: Array<Family>,
-): Set<Instance> {
-  if (__DEV__) {
-    const affectedInstances = new Set();
-    mountedRoots.forEach(root => {
-      const helpers = helpersByRoot.get(root);
-      if (helpers === undefined) {
-        throw new Error(
-          'Could not find helpers for a root. This is a bug in React Refresh.',
-        );
-      }
-      const instancesForRoot = helpers.findHostInstancesForRefresh(
-        root,
-        families,
-      );
-      instancesForRoot.forEach(inst => {
-        affectedInstances.add(inst);
-      });
-    });
-    return affectedInstances;
-  } else {
-    throw new Error(
-      'Unexpected call to React Refresh in a production environment.',
-    );
-  }
-}
-
 export function injectIntoGlobalHook(globalObject: any): void {
   if (__DEV__) {
     // For React Native, the global hook will be set up by require('react-devtools-core').
@@ -490,7 +502,7 @@ export function injectIntoGlobalHook(globalObject: any): void {
 
     // Here, we just want to get a reference to scheduleRefresh.
     const oldInject = hook.inject;
-    hook.inject = function(this: mixed, injected) {
+    hook.inject = function (this: mixed, injected) {
       const id = oldInject.apply(this, arguments);
       if (
         typeof injected.scheduleRefresh === 'function' &&
@@ -518,7 +530,7 @@ export function injectIntoGlobalHook(globalObject: any): void {
     // We also want to track currently mounted roots.
     const oldOnCommitFiberRoot = hook.onCommitFiberRoot;
     const oldOnScheduleFiberRoot = hook.onScheduleFiberRoot || (() => {});
-    hook.onScheduleFiberRoot = function(
+    hook.onScheduleFiberRoot = function (
       this: mixed,
       id: number,
       root: FiberRoot,
@@ -534,7 +546,7 @@ export function injectIntoGlobalHook(globalObject: any): void {
       }
       return oldOnScheduleFiberRoot.apply(this, arguments);
     };
-    hook.onCommitFiberRoot = function(
+    hook.onCommitFiberRoot = function (
       this: mixed,
       id: number,
       root: FiberRoot,
@@ -645,10 +657,10 @@ export function createSignatureFunctionForTransform(): <T>(
   getCustomHooks?: () => Array<Function>,
 ) => T | void {
   if (__DEV__) {
-    let savedType;
-    let hasCustomHooks;
+    let savedType: mixed;
+    let hasCustomHooks: boolean;
     let didCollectHooks = false;
-    return function<T>(
+    return function <T>(
       type: T,
       key: string,
       forceReset?: boolean,
@@ -660,7 +672,6 @@ export function createSignatureFunctionForTransform(): <T>(
         // in HOC chains like _s(hoc1(_s(hoc2(_s(actualFunction))))).
         if (!savedType) {
           // We're in the innermost call, so this is the actual type.
-          // $FlowFixMe[escaped-generic] discovered when updating Flow
           savedType = type;
           hasCustomHooks = typeof getCustomHooks === 'function';
         }

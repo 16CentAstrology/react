@@ -15,8 +15,12 @@ import {
   useMemo,
   useRef,
   useState,
+  use,
 } from 'react';
-import {LOCAL_STORAGE_OPEN_IN_EDITOR_URL} from '../../../constants';
+import {
+  LOCAL_STORAGE_OPEN_IN_EDITOR_URL,
+  LOCAL_STORAGE_OPEN_IN_EDITOR_URL_PRESET,
+} from '../../../constants';
 import {useLocalStorage, useSubscription} from '../hooks';
 import {StoreContext} from '../context';
 import Button from '../Button';
@@ -28,6 +32,7 @@ import {
   ComponentFilterElementType,
   ComponentFilterHOC,
   ComponentFilterLocation,
+  ComponentFilterEnvironmentName,
   ElementTypeClass,
   ElementTypeContext,
   ElementTypeFunction,
@@ -37,7 +42,7 @@ import {
   ElementTypeOtherOrUnknown,
   ElementTypeProfiler,
   ElementTypeSuspense,
-} from 'react-devtools-shared/src/types';
+} from 'react-devtools-shared/src/frontend/types';
 import {getDefaultOpenInEditorURL} from 'react-devtools-shared/src/utils';
 
 import styles from './SettingsShared.css';
@@ -49,9 +54,16 @@ import type {
   ElementType,
   ElementTypeComponentFilter,
   RegExpComponentFilter,
-} from 'react-devtools-shared/src/types';
+  EnvironmentNameComponentFilter,
+} from 'react-devtools-shared/src/frontend/types';
 
-export default function ComponentsSettings(_: {}): React.Node {
+const vscodeFilepath = 'vscode://file/{path}:{line}';
+
+export default function ComponentsSettings({
+  environmentNames,
+}: {
+  environmentNames: Promise<Array<string>>,
+}): React.Node {
   const store = useContext(StoreContext);
   const {parseHookNames, setParseHookNames} = useContext(SettingsContext);
 
@@ -70,18 +82,22 @@ export default function ComponentsSettings(_: {}): React.Node {
   );
 
   const updateCollapseNodesByDefault = useCallback(
-    ({currentTarget}) => {
+    ({currentTarget}: $FlowFixMe) => {
       store.collapseNodesByDefault = !currentTarget.checked;
     },
     [store],
   );
 
   const updateParseHookNames = useCallback(
-    ({currentTarget}) => {
+    ({currentTarget}: $FlowFixMe) => {
       setParseHookNames(currentTarget.checked);
     },
     [setParseHookNames],
   );
+
+  const [openInEditorURLPreset, setOpenInEditorURLPreset] = useLocalStorage<
+    'vscode' | 'custom',
+  >(LOCAL_STORAGE_OPEN_IN_EDITOR_URL_PRESET, 'custom');
 
   const [openInEditorURL, setOpenInEditorURL] = useLocalStorage<string>(
     LOCAL_STORAGE_OPEN_IN_EDITOR_URL,
@@ -91,6 +107,30 @@ export default function ComponentsSettings(_: {}): React.Node {
   const [componentFilters, setComponentFilters] = useState<
     Array<ComponentFilter>,
   >(() => [...store.componentFilters]);
+
+  const usedEnvironmentNames = use(environmentNames);
+
+  const resolvedEnvironmentNames = useMemo(() => {
+    const set = new Set(usedEnvironmentNames);
+    // If there are other filters already specified but are not currently
+    // on the page, we still allow them as options.
+    for (let i = 0; i < componentFilters.length; i++) {
+      const filter = componentFilters[i];
+      if (filter.type === ComponentFilterEnvironmentName) {
+        set.add(filter.value);
+      }
+    }
+    // Client is special and is always available as a default.
+    if (set.size > 0) {
+      // Only show any options at all if there's any other option already
+      // used by a filter or if any environments are used by the page.
+      // Note that "Client" can have been added above which would mean
+      // that we should show it as an option regardless if it's the only
+      // option.
+      set.add('Client');
+    }
+    return Array.from(set).sort();
+  }, [usedEnvironmentNames, componentFilters]);
 
   const addFilter = useCallback(() => {
     setComponentFilters(prevComponentFilters => {
@@ -136,6 +176,13 @@ export default function ComponentsSettings(_: {}): React.Node {
               type: ComponentFilterHOC,
               isEnabled: componentFilter.isEnabled,
               isValid: true,
+            };
+          } else if (type === ComponentFilterEnvironmentName) {
+            cloned[index] = {
+              type: ComponentFilterEnvironmentName,
+              isEnabled: componentFilter.isEnabled,
+              isValid: true,
+              value: 'Client',
             };
           }
         }
@@ -201,6 +248,29 @@ export default function ComponentsSettings(_: {}): React.Node {
     [],
   );
 
+  const updateFilterValueEnvironmentName = useCallback(
+    (componentFilter: ComponentFilter, value: string) => {
+      if (componentFilter.type !== ComponentFilterEnvironmentName) {
+        throw Error('Invalid value for environment name filter');
+      }
+
+      setComponentFilters(prevComponentFilters => {
+        const cloned: Array<ComponentFilter> = [...prevComponentFilters];
+        if (componentFilter.type === ComponentFilterEnvironmentName) {
+          const index = prevComponentFilters.indexOf(componentFilter);
+          if (index >= 0) {
+            cloned[index] = {
+              ...componentFilter,
+              value,
+            };
+          }
+        }
+        return cloned;
+      });
+    },
+    [],
+  );
+
   const removeFilter = useCallback((index: number) => {
     setComponentFilters(prevComponentFilters => {
       const cloned: Array<ComponentFilter> = [...prevComponentFilters];
@@ -208,6 +278,10 @@ export default function ComponentsSettings(_: {}): React.Node {
       return cloned;
     });
   }, []);
+
+  const removeAllFilter = () => {
+    setComponentFilters([]);
+  };
 
   const toggleFilterIsEnabled = useCallback(
     (componentFilter: ComponentFilter, isEnabled: boolean) => {
@@ -231,6 +305,11 @@ export default function ComponentsSettings(_: {}): React.Node {
           } else if (componentFilter.type === ComponentFilterHOC) {
             cloned[index] = {
               ...((cloned[index]: any): BooleanComponentFilter),
+              isEnabled,
+            };
+          } else if (componentFilter.type === ComponentFilterEnvironmentName) {
+            cloned[index] = {
+              ...((cloned[index]: any): EnvironmentNameComponentFilter),
               isEnabled,
             };
           }
@@ -280,15 +359,32 @@ export default function ComponentsSettings(_: {}): React.Node {
 
       <label className={styles.OpenInURLSetting}>
         Open in Editor URL:{' '}
-        <input
-          className={styles.Input}
-          type="text"
-          placeholder={process.env.EDITOR_URL ?? 'vscode://file/{path}:{line}'}
-          value={openInEditorURL}
-          onChange={event => {
-            setOpenInEditorURL(event.target.value);
-          }}
-        />
+        <select
+          className={styles.Select}
+          value={openInEditorURLPreset}
+          onChange={({currentTarget}) => {
+            const selectedValue = currentTarget.value;
+            setOpenInEditorURLPreset(selectedValue);
+            if (selectedValue === 'vscode') {
+              setOpenInEditorURL(vscodeFilepath);
+            } else if (selectedValue === 'custom') {
+              setOpenInEditorURL('');
+            }
+          }}>
+          <option value="vscode">VS Code</option>
+          <option value="custom">Custom</option>
+        </select>
+        {openInEditorURLPreset === 'custom' && (
+          <input
+            className={styles.Input}
+            type="text"
+            placeholder={process.env.EDITOR_URL ? process.env.EDITOR_URL : ''}
+            value={openInEditorURL}
+            onChange={event => {
+              setOpenInEditorURL(event.target.value);
+            }}
+          />
+        )}
       </label>
 
       <div className={styles.Header}>Hide components where...</div>
@@ -319,8 +415,8 @@ export default function ComponentsSettings(_: {}): React.Node {
                     componentFilter.isValid === false
                       ? 'Filter invalid'
                       : componentFilter.isEnabled
-                      ? 'Filter enabled'
-                      : 'Filter disabled'
+                        ? 'Filter enabled'
+                        : 'Filter disabled'
                   }>
                   <ToggleIcon
                     isEnabled={componentFilter.isEnabled}
@@ -344,14 +440,22 @@ export default function ComponentsSettings(_: {}): React.Node {
                       ): any): ComponentFilterType),
                     )
                   }>
-                  <option value={ComponentFilterLocation}>location</option>
+                  {/* TODO: currently disabled, need find a new way of doing this
+                    <option value={ComponentFilterLocation}>location</option>
+                  */}
                   <option value={ComponentFilterDisplayName}>name</option>
                   <option value={ComponentFilterElementType}>type</option>
                   <option value={ComponentFilterHOC}>hoc</option>
+                  {resolvedEnvironmentNames.length > 0 && (
+                    <option value={ComponentFilterEnvironmentName}>
+                      environment
+                    </option>
+                  )}
                 </select>
               </td>
               <td className={styles.TableCell}>
-                {componentFilter.type === ComponentFilterElementType &&
+                {(componentFilter.type === ComponentFilterElementType ||
+                  componentFilter.type === ComponentFilterEnvironmentName) &&
                   'equals'}
                 {(componentFilter.type === ComponentFilterLocation ||
                   componentFilter.type === ComponentFilterDisplayName) &&
@@ -373,7 +477,9 @@ export default function ComponentsSettings(_: {}): React.Node {
                     <option value={ElementTypeFunction}>function</option>
                     <option value={ElementTypeForwardRef}>forward ref</option>
                     <option value={ElementTypeHostComponent}>
-                      dom nodes (e.g. &lt;div&gt;)
+                      {__IS_NATIVE__
+                        ? 'host components (e.g. &lt;RCTText&gt;)'
+                        : 'dom nodes (e.g. &lt;div&gt;)'}
                     </option>
                     <option value={ElementTypeMemo}>memo</option>
                     <option value={ElementTypeOtherOrUnknown}>other</option>
@@ -396,6 +502,23 @@ export default function ComponentsSettings(_: {}): React.Node {
                     value={componentFilter.value}
                   />
                 )}
+                {componentFilter.type === ComponentFilterEnvironmentName && (
+                  <select
+                    className={styles.Select}
+                    value={componentFilter.value}
+                    onChange={({currentTarget}) =>
+                      updateFilterValueEnvironmentName(
+                        componentFilter,
+                        currentTarget.value,
+                      )
+                    }>
+                    {resolvedEnvironmentNames.map(name => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </td>
               <td className={styles.TableCell}>
                 <Button
@@ -408,11 +531,16 @@ export default function ComponentsSettings(_: {}): React.Node {
           ))}
         </tbody>
       </table>
-
-      <Button onClick={addFilter}>
+      <Button onClick={addFilter} title="Add filter">
         <ButtonIcon className={styles.ButtonIcon} type="add" />
         Add filter
       </Button>
+      {componentFilters.length > 0 && (
+        <Button onClick={removeAllFilter} title="Delete all filters">
+          <ButtonIcon className={styles.ButtonIcon} type="delete" />
+          Delete all filters
+        </Button>
+      )}
     </div>
   );
 }

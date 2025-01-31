@@ -24,12 +24,22 @@ export function useSyncExternalStoreWithSelector<Snapshot, Selection>(
   isEqual?: (a: Selection, b: Selection) => boolean,
 ): Selection {
   // Use this to track the rendered snapshot.
-  const instRef = useRef(null);
+  const instRef = useRef<
+    | {
+        hasValue: true,
+        value: Selection,
+      }
+    | {
+        hasValue: false,
+        value: null,
+      }
+    | null,
+  >(null);
   let inst;
   if (instRef.current === null) {
     inst = {
       hasValue: false,
-      value: (null: Selection | null),
+      value: null,
     };
     instRef.current = inst;
   } else {
@@ -83,6 +93,9 @@ export function useSyncExternalStoreWithSelector<Snapshot, Selection>(
       // to React that the selections are conceptually equal, and we can bail
       // out of rendering.
       if (isEqual !== undefined && isEqual(prevSelection, nextSelection)) {
+        // The snapshot still has changed, so make sure to update to not keep
+        // old references alive
+        memoizedSnapshot = nextSnapshot;
         return prevSelection;
       }
 
@@ -108,7 +121,9 @@ export function useSyncExternalStoreWithSelector<Snapshot, Selection>(
   );
 
   useEffect(() => {
+    // $FlowFixMe[incompatible-type] changing the variant using mutation isn't supported
     inst.hasValue = true;
+    // $FlowFixMe[incompatible-type]
     inst.value = value;
   }, [value]);
 

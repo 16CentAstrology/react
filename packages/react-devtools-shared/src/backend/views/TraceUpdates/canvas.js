@@ -9,9 +9,10 @@
 
 import type {Data} from './index';
 import type {Rect} from '../utils';
-import type {NativeType} from '../../types';
+import type {HostInstance} from '../../types';
+import type Agent from '../../agent';
 
-const OUTLINE_COLOR = '#f0f0f0';
+import {isReactNativeEnvironment} from 'react-devtools-shared/src/backend/utils';
 
 // Note these colors are in sync with DevTools Profiler chart colors.
 const COLORS = [
@@ -29,63 +30,176 @@ const COLORS = [
 
 let canvas: HTMLCanvasElement | null = null;
 
-export function draw(nodeToData: Map<NativeType, Data>): void {
+function drawNative(nodeToData: Map<HostInstance, Data>, agent: Agent) {
+  const nodesToDraw = [];
+  iterateNodes(nodeToData, ({color, node}) => {
+    nodesToDraw.push({node, color});
+  });
+
+  agent.emit('drawTraceUpdates', nodesToDraw);
+
+  const mergedNodes = groupAndSortNodes(nodeToData);
+  agent.emit('drawGroupedTraceUpdatesWithNames', mergedNodes);
+}
+
+function drawWeb(nodeToData: Map<HostInstance, Data>) {
   if (canvas === null) {
     initialize();
   }
 
+  const dpr = window.devicePixelRatio || 1;
   const canvasFlow: HTMLCanvasElement = ((canvas: any): HTMLCanvasElement);
-  canvasFlow.width = window.innerWidth;
-  canvasFlow.height = window.innerHeight;
+  canvasFlow.width = window.innerWidth * dpr;
+  canvasFlow.height = window.innerHeight * dpr;
+  canvasFlow.style.width = `${window.innerWidth}px`;
+  canvasFlow.style.height = `${window.innerHeight}px`;
 
   const context = canvasFlow.getContext('2d');
-  context.clearRect(0, 0, canvasFlow.width, canvasFlow.height);
+  context.scale(dpr, dpr);
 
-  nodeToData.forEach(({count, rect}) => {
-    if (rect !== null) {
-      const colorIndex = Math.min(COLORS.length - 1, count - 1);
-      const color = COLORS[colorIndex];
+  context.clearRect(0, 0, canvasFlow.width / dpr, canvasFlow.height / dpr);
 
-      drawBorder(context, rect, color);
-    }
+  const mergedNodes = groupAndSortNodes(nodeToData);
+
+  mergedNodes.forEach(group => {
+    drawGroupBorders(context, group);
+    drawGroupLabel(context, group);
   });
 }
 
-function drawBorder(
-  context: CanvasRenderingContext2D,
+type GroupItem = {
   rect: Rect,
   color: string,
-): void {
-  const {height, left, top, width} = rect;
+  displayName: string | null,
+  count: number,
+};
 
-  // outline
-  context.lineWidth = 1;
-  context.strokeStyle = OUTLINE_COLOR;
+export type {GroupItem};
 
-  context.strokeRect(left - 1, top - 1, width + 2, height + 2);
+export function groupAndSortNodes(
+  nodeToData: Map<HostInstance, Data>,
+): Array<Array<GroupItem>> {
+  const positionGroups: Map<string, Array<GroupItem>> = new Map();
 
-  // inset
-  context.lineWidth = 1;
-  context.strokeStyle = OUTLINE_COLOR;
-  context.strokeRect(left + 1, top + 1, width - 1, height - 1);
-  context.strokeStyle = color;
+  iterateNodes(nodeToData, ({rect, color, displayName, count}) => {
+    if (!rect) return;
+    const key = `${rect.left},${rect.top}`;
+    if (!positionGroups.has(key)) positionGroups.set(key, []);
+    positionGroups.get(key)?.push({rect, color, displayName, count});
+  });
 
-  context.setLineDash([0]);
-
-  // border
-  context.lineWidth = 1;
-  context.strokeRect(left, top, width - 1, height - 1);
-
-  context.setLineDash([0]);
+  return Array.from(positionGroups.values()).sort((groupA, groupB) => {
+    const maxCountA = Math.max(...groupA.map(item => item.count));
+    const maxCountB = Math.max(...groupB.map(item => item.count));
+    return maxCountA - maxCountB;
+  });
 }
 
-export function destroy(): void {
+function drawGroupBorders(
+  context: CanvasRenderingContext2D,
+  group: Array<GroupItem>,
+) {
+  group.forEach(({color, rect}) => {
+    context.beginPath();
+    context.strokeStyle = color;
+    context.rect(rect.left, rect.top, rect.width - 1, rect.height - 1);
+    context.stroke();
+  });
+}
+
+function drawGroupLabel(
+  context: CanvasRenderingContext2D,
+  group: Array<GroupItem>,
+) {
+  const mergedName = group
+    .map(({displayName, count}) =>
+      displayName ? `${displayName}${count > 1 ? ` x${count}` : ''}` : '',
+    )
+    .filter(Boolean)
+    .join(', ');
+
+  if (mergedName) {
+    drawLabel(context, group[0].rect, mergedName, group[0].color);
+  }
+}
+
+export function draw(nodeToData: Map<HostInstance, Data>, agent: Agent): void {
+  return isReactNativeEnvironment()
+    ? drawNative(nodeToData, agent)
+    : drawWeb(nodeToData);
+}
+
+type DataWithColorAndNode = {
+  ...Data,
+  color: string,
+  node: HostInstance,
+};
+
+function iterateNodes(
+  nodeToData: Map<HostInstance, Data>,
+  execute: (data: DataWithColorAndNode) => void,
+) {
+  nodeToData.forEach((data, node) => {
+    const colorIndex = Math.min(COLORS.length - 1, data.count - 1);
+    const color = COLORS[colorIndex];
+    execute({
+      color,
+      node,
+      count: data.count,
+      displayName: data.displayName,
+      expirationTime: data.expirationTime,
+      lastMeasuredAt: data.lastMeasuredAt,
+      rect: data.rect,
+    });
+  });
+}
+
+function drawLabel(
+  context: CanvasRenderingContext2D,
+  rect: Rect,
+  text: string,
+  color: string,
+): void {
+  const {left, top} = rect;
+  context.font = '10px monospace';
+  context.textBaseline = 'middle';
+  context.textAlign = 'center';
+
+  const padding = 2;
+  const textHeight = 14;
+
+  const metrics = context.measureText(text);
+  const backgroundWidth = metrics.width + padding * 2;
+  const backgroundHeight = textHeight;
+  const labelX = left;
+  const labelY = top - backgroundHeight;
+
+  context.fillStyle = color;
+  context.fillRect(labelX, labelY, backgroundWidth, backgroundHeight);
+
+  context.fillStyle = '#000000';
+  context.fillText(
+    text,
+    labelX + backgroundWidth / 2,
+    labelY + backgroundHeight / 2,
+  );
+}
+
+function destroyNative(agent: Agent) {
+  agent.emit('disableTraceUpdates');
+}
+
+function destroyWeb() {
   if (canvas !== null) {
     if (canvas.parentNode != null) {
       canvas.parentNode.removeChild(canvas);
     }
     canvas = null;
   }
+}
+
+export function destroy(agent: Agent): void {
+  return isReactNativeEnvironment() ? destroyNative(agent) : destroyWeb();
 }
 
 function initialize(): void {
