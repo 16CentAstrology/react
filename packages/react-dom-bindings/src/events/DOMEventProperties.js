@@ -11,18 +11,23 @@ import type {DOMEventName} from './DOMEventNames';
 
 import {registerTwoPhaseEvent} from './EventRegistry';
 import {
+  ANIMATION_CANCEL,
   ANIMATION_END,
   ANIMATION_ITERATION,
   ANIMATION_START,
+  TRANSITION_RUN,
+  TRANSITION_START,
+  TRANSITION_CANCEL,
   TRANSITION_END,
 } from './DOMEventNames';
 
-import {enableCreateEventHandleAPI} from 'shared/ReactFeatureFlags';
+import {
+  enableCreateEventHandleAPI,
+  enableScrollEndPolyfill,
+} from 'shared/ReactFeatureFlags';
 
-export const topLevelEventsToReactNames: Map<
-  DOMEventName,
-  string | null,
-> = new Map();
+export const topLevelEventsToReactNames: Map<DOMEventName, string | null> =
+  new Map();
 
 // NOTE: Capitalization is important in this list!
 //
@@ -36,6 +41,7 @@ export const topLevelEventsToReactNames: Map<
 const simpleEventPluginEvents = [
   'abort',
   'auxClick',
+  'beforeToggle',
   'cancel',
   'canPlay',
   'canPlayThrough',
@@ -57,6 +63,8 @@ const simpleEventPluginEvents = [
   'encrypted',
   'ended',
   'error',
+  'fullscreenChange',
+  'fullscreenError',
   'gotPointerCapture',
   'input',
   'invalid',
@@ -104,6 +112,10 @@ const simpleEventPluginEvents = [
   'wheel',
 ];
 
+if (!enableScrollEndPolyfill) {
+  simpleEventPluginEvents.push('scrollEnd');
+}
+
 if (enableCreateEventHandleAPI) {
   // Special case: these two events don't have on* React handler
   // and are only accessible via the createEventHandle API.
@@ -118,17 +130,22 @@ function registerSimpleEvent(domEventName: DOMEventName, reactName: string) {
 
 export function registerSimpleEvents() {
   for (let i = 0; i < simpleEventPluginEvents.length; i++) {
-    const eventName = ((simpleEventPluginEvents[i]: any): string);
-    const domEventName = ((eventName.toLowerCase(): any): DOMEventName);
+    const eventName = simpleEventPluginEvents[i] as any as string;
+    const domEventName = eventName.toLowerCase() as any as DOMEventName;
     const capitalizedEvent = eventName[0].toUpperCase() + eventName.slice(1);
     registerSimpleEvent(domEventName, 'on' + capitalizedEvent);
   }
   // Special cases where event names don't match.
+  registerSimpleEvent(ANIMATION_CANCEL, 'onAnimationCancel');
   registerSimpleEvent(ANIMATION_END, 'onAnimationEnd');
   registerSimpleEvent(ANIMATION_ITERATION, 'onAnimationIteration');
   registerSimpleEvent(ANIMATION_START, 'onAnimationStart');
   registerSimpleEvent('dblclick', 'onDoubleClick');
   registerSimpleEvent('focusin', 'onFocus');
   registerSimpleEvent('focusout', 'onBlur');
+
+  registerSimpleEvent(TRANSITION_RUN, 'onTransitionRun');
+  registerSimpleEvent(TRANSITION_START, 'onTransitionStart');
+  registerSimpleEvent(TRANSITION_CANCEL, 'onTransitionCancel');
   registerSimpleEvent(TRANSITION_END, 'onTransitionEnd');
 }

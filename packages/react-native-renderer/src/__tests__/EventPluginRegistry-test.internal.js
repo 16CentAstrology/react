@@ -14,15 +14,15 @@ describe('EventPluginRegistry', () => {
   let createPlugin;
 
   beforeEach(() => {
-    jest.resetModuleRegistry();
+    jest.resetModules();
     // These tests are intentionally testing the private injection interface.
     // The public API surface of this is covered by other tests so
     // if `EventPluginRegistry` is ever deleted, these tests should be
     // safe to remove too.
     EventPluginRegistry = require('react-native-renderer/src/legacy-events/EventPluginRegistry');
 
-    createPlugin = function(properties) {
-      return Object.assign({extractEvents: function() {}}, properties);
+    createPlugin = function (properties) {
+      return Object.assign({extractEvents: function () {}}, properties);
     };
   });
 
@@ -92,11 +92,11 @@ describe('EventPluginRegistry', () => {
 
     EventPluginRegistry.injectEventPluginOrder(['bad']);
 
-    expect(function() {
+    expect(function () {
       EventPluginRegistry.injectEventPluginsByName({
         bad: BadPlugin,
       });
-    }).toThrowError(
+    }).toThrow(
       'EventPluginRegistry: Event plugins must implement an `extractEvents` ' +
         'method, but `bad` does not.',
     );
@@ -108,12 +108,12 @@ describe('EventPluginRegistry', () => {
 
     EventPluginRegistry.injectEventPluginOrder(['one']);
 
-    expect(function() {
+    expect(function () {
       EventPluginRegistry.injectEventPluginsByName({
         one: OnePlugin,
         random: RandomPlugin,
       });
-    }).toThrowError(
+    }).toThrow(
       'EventPluginRegistry: Cannot inject event plugins that do not exist ' +
         'in the plugin ordering, `random`.',
     );
@@ -124,9 +124,9 @@ describe('EventPluginRegistry', () => {
 
     EventPluginRegistry.injectEventPluginOrder(pluginOrdering);
 
-    expect(function() {
+    expect(function () {
       EventPluginRegistry.injectEventPluginOrder(pluginOrdering);
-    }).toThrowError(
+    }).toThrow(
       'EventPluginRegistry: Cannot inject event plugin ordering more than ' +
         'once. You are likely trying to load more than one copy of React.',
     );
@@ -138,9 +138,9 @@ describe('EventPluginRegistry', () => {
 
     EventPluginRegistry.injectEventPluginsByName({same: OnePlugin});
 
-    expect(function() {
+    expect(function () {
       EventPluginRegistry.injectEventPluginsByName({same: TwoPlugin});
-    }).toThrowError(
+    }).toThrow(
       'EventPluginRegistry: Cannot inject two different event plugins using ' +
         'the same name, `same`.',
     );
@@ -208,9 +208,9 @@ describe('EventPluginRegistry', () => {
       two: TwoPlugin,
     });
 
-    expect(function() {
+    expect(function () {
       EventPluginRegistry.injectEventPluginOrder(['one', 'two']);
-    }).toThrowError(
+    }).toThrow(
       'EventPluginRegistry: More than one plugin attempted to publish the same ' +
         'registration name, `onPhotoCapture`.',
     );
@@ -227,9 +227,9 @@ describe('EventPluginRegistry', () => {
 
     EventPluginRegistry.injectEventPluginsByName({one: OnePlugin});
 
-    expect(function() {
+    expect(function () {
       EventPluginRegistry.injectEventPluginOrder(['one']);
-    }).toThrowError(
+    }).toThrow(
       'EventPluginRegistry: Failed to publish event `badEvent` for plugin ' +
         '`one`.',
     );

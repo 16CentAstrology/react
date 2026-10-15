@@ -27,9 +27,12 @@ import {
   SyntheticWheelEvent,
   SyntheticClipboardEvent,
   SyntheticPointerEvent,
+  SyntheticSubmitEvent,
+  SyntheticToggleEvent,
 } from '../../events/SyntheticEvent';
 
 import {
+  ANIMATION_CANCEL,
   ANIMATION_END,
   ANIMATION_ITERATION,
   ANIMATION_START,
@@ -72,7 +75,9 @@ function extractEvents(
       // Firefox creates a keypress event for function keys too. This removes
       // the unwanted keypress events. Enter is however both printable and
       // non-printable. One would expect Tab to be as well (but it isn't).
-      if (getEventCharCode(((nativeEvent: any): KeyboardEvent)) === 0) {
+      // TODO: Fixed in https://bugzilla.mozilla.org/show_bug.cgi?id=968056. Can
+      // probably remove.
+      if (getEventCharCode(nativeEvent as any as KeyboardEvent) === 0) {
         return;
       }
     /* falls through */
@@ -95,6 +100,8 @@ function extractEvents(
     case 'click':
       // Firefox creates a click event on right mouse clicks. This removes the
       // unwanted click events.
+      // TODO: Fixed in https://phabricator.services.mozilla.com/D26793. Can
+      // probably remove.
       if (nativeEvent.button === 2) {
         return;
       }
@@ -127,6 +134,7 @@ function extractEvents(
     case 'touchstart':
       SyntheticEventCtor = SyntheticTouchEvent;
       break;
+    case ANIMATION_CANCEL:
     case ANIMATION_END:
     case ANIMATION_ITERATION:
     case ANIMATION_START:
@@ -136,6 +144,7 @@ function extractEvents(
       SyntheticEventCtor = SyntheticTransitionEvent;
       break;
     case 'scroll':
+    case 'scrollend':
       SyntheticEventCtor = SyntheticUIEvent;
       break;
     case 'wheel':
@@ -156,6 +165,14 @@ function extractEvents(
     case 'pointerup':
       SyntheticEventCtor = SyntheticPointerEvent;
       break;
+    case 'submit':
+      SyntheticEventCtor = SyntheticSubmitEvent;
+      break;
+    case 'toggle':
+    case 'beforetoggle':
+      // MDN claims <details> should not receive ToggleEvent contradicting the spec: https://html.spec.whatwg.org/multipage/indices.html#event-toggle
+      SyntheticEventCtor = SyntheticToggleEvent;
+      break;
     default:
       // Unknown event. This is used by createEventHandle.
       break;
@@ -169,7 +186,7 @@ function extractEvents(
     const listeners = accumulateEventHandleNonManagedNodeListeners(
       // TODO: this cast may not make sense for events like
       // "focus" where React listens to e.g. "focusin".
-      ((reactEventType: any): DOMEventName),
+      reactEventType as any as DOMEventName,
       targetContainer,
       inCapturePhase,
     );
@@ -195,7 +212,10 @@ function extractEvents(
       // nonDelegatedEvents list in DOMPluginEventSystem.
       // Then we can remove this special list.
       // This is a breaking change that can wait until React 18.
-      domEventName === 'scroll';
+      (domEventName === 'scroll' ||
+        domEventName === 'scrollend' ||
+        domEventName === 'toggle' ||
+        domEventName === 'beforetoggle');
 
     const listeners = accumulateSinglePhaseListeners(
       targetInst,

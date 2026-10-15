@@ -4,7 +4,6 @@
 
 const chalk = require('chalk');
 const {exec} = require('child-process-promise');
-const inquirer = require('inquirer');
 const {homedir} = require('os');
 const {join, relative} = require('path');
 const {DRY_RUN, ROOT_PATH} = require('./configuration');
@@ -49,19 +48,36 @@ async function main() {
     console.log(chalk.bold.green('  ' + pathToPrint));
   });
 
-  const archivePath = await archiveGitRevision();
-  const buildID = await downloadLatestReactBuild();
+  await ensureCleanWorkingTree();
+  const currentCommitHash = await getCurrentCommitHash();
+  const archivePath = await archiveGitRevision(currentCommitHash);
+  await downloadLatestReactBuild(currentCommitHash);
 
   await buildAndTestInlinePackage();
   await buildAndTestStandalonePackage();
   await buildAndTestExtensions();
 
-  saveBuildMetadata({archivePath, buildID});
+  saveBuildMetadata({archivePath, currentCommitHash});
 
   printFinalInstructions();
 }
 
-async function archiveGitRevision() {
+async function ensureCleanWorkingTree() {
+  const status = await execRead('git status --porcelain', {cwd: ROOT_PATH});
+  if (status !== '') {
+    throw new Error('Cannot build a release from a dirty working tree.');
+  }
+}
+
+async function getCurrentCommitHash() {
+  const commitHash = await execRead('git rev-parse HEAD', {cwd: ROOT_PATH});
+  if (commitHash === '') {
+    throw new Error('Failed to get current commit hash');
+  }
+  return commitHash;
+}
+
+async function archiveGitRevision(currentCommitHash) {
   const desktopPath = join(homedir(), 'Desktop');
   const archivePath = join(desktopPath, 'DevTools.tgz');
 
@@ -69,7 +85,10 @@ async function archiveGitRevision() {
   console.log('');
 
   if (!DRY_RUN) {
-    await exec(`git archive main | gzip > ${archivePath}`, {cwd: ROOT_PATH});
+    await exec(
+      `git archive --format=tar.gz --output="${archivePath}" ${currentCommitHash}`,
+      {cwd: ROOT_PATH}
+    );
   }
 
   return archivePath;
@@ -181,7 +200,7 @@ async function buildAndTestInlinePackage() {
   await confirmContinue();
 }
 
-async function downloadLatestReactBuild() {
+async function downloadLatestReactBuild(currentCommitHash) {
   const releaseScriptPath = join(ROOT_PATH, 'scripts', 'release');
   const installPromise = exec('yarn install', {cwd: releaseScriptPath});
 
@@ -197,42 +216,17 @@ async function downloadLatestReactBuild() {
 
   console.log('');
 
-  const {commit} = await inquirer.prompt([
-    {
-      type: 'input',
-      name: 'commit',
-      message: 'Which React version (commit) should be used?',
-      default: 'main',
-    },
-  ]);
-  console.log('');
-
   const downloadScriptPath = join(
     releaseScriptPath,
     'download-experimental-build.js'
   );
   const downloadPromise = execRead(
-    `"${downloadScriptPath}" --commit=${commit}`
+    `"${downloadScriptPath}" --commit=${currentCommitHash}`
   );
 
-  const output = await logger(
-    downloadPromise,
-    'Downloading React artifacts from CI.',
-    {estimate: 15000}
-  );
-
-  const match = output.match('--build=([0-9]+)');
-  if (match.length === 0) {
-    console.error(chalk.red(`No build ID found in "${output}"`));
-    process.exit(1);
-  }
-
-  const buildID = match[1];
-
-  console.log('');
-  console.log(`Downloaded artifacts for CI build ${chalk.bold(buildID)}.`);
-
-  return buildID;
+  await logger(downloadPromise, 'Downloading React artifacts from CI.', {
+    estimate: 15000,
+  });
 }
 
 function printFinalInstructions() {

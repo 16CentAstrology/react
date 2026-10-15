@@ -62,7 +62,7 @@ function checkNodeLocation(
     // with the larger 0-based VariableDeclarator (e.g. [foo, setFoo] = useState())
     // so the ranges should always overlap.
     //
-    // For more info see https://github.com/facebook/react/pull/21833#discussion_r666831276
+    // For more info see https://github.com/react/react/pull/21833#discussion_r666831276
     column -= 1;
     if (
       (line === start.line && column < start.column) ||
@@ -244,9 +244,10 @@ function getHookNameFromNode(
       // const flagState = useState(true); -> later referenced as
       // const flag = flagState[0];
       // const setFlag = flagState[1];
-      nodesAssociatedWithReactHookASTNode = nodesAssociatedWithReactHookASTNode.filter(
-        hookPath => filterMemberWithHookVariableName(hookPath),
-      );
+      nodesAssociatedWithReactHookASTNode =
+        nodesAssociatedWithReactHookASTNode.filter(hookPath =>
+          filterMemberWithHookVariableName(hookPath),
+        );
 
       if (nodesAssociatedWithReactHookASTNode.length !== 1) {
         // Something went wrong, only a single desirable hook should remain here
@@ -288,7 +289,7 @@ function getHookVariableName(
   const nodeType = hook.node.id.type;
   switch (nodeType) {
     case AST_NODE_TYPES.ARRAY_PATTERN:
-      return !isCustomHook ? hook.node.id.elements[0]?.name ?? null : null;
+      return !isCustomHook ? (hook.node.id.elements[0]?.name ?? null) : null;
 
     case AST_NODE_TYPES.IDENTIFIER:
       return hook.node.id.name;
