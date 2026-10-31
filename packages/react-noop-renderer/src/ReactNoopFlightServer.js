@@ -14,16 +14,22 @@
  * environment.
  */
 
-import type {ReactModel} from 'react-server/src/ReactFlightServer';
-import type {ServerContextJSONValue} from 'shared/ReactTypes';
+import type {ReactClientValue} from 'react-server/src/ReactFlightServer';
 
 import {saveModule} from 'react-noop-renderer/flight-modules';
 
 import ReactFlightServer from 'react-server/flight';
 
-type Destination = Array<string>;
+type Destination = Array<Uint8Array | string>;
 
+const textEncoder = new TextEncoder();
+
+// $FlowFixMe[prop-missing]
+// $FlowFixMe[incompatible-type]
 const ReactNoopFlightServer = ReactFlightServer({
+  scheduleMicrotask(callback: () => void) {
+    callback();
+  },
   scheduleWork(callback: () => void) {
     callback();
   },
@@ -39,22 +45,25 @@ const ReactNoopFlightServer = ReactFlightServer({
   close(destination: Destination): void {},
   closeWithError(destination: Destination, error: mixed): void {},
   flushBuffered(destination: Destination): void {},
-  stringToChunk(content: string): string {
-    return content;
+  stringToChunk(content: string): Uint8Array {
+    return textEncoder.encode(content);
   },
-  stringToPrecomputedChunk(content: string): string {
-    return content;
+  stringToPrecomputedChunk(content: string): Uint8Array {
+    return textEncoder.encode(content);
   },
-  clonePrecomputedChunk(chunk: string): string {
-    return chunk;
+  byteLengthOfChunk(chunk: Uint8Array): number {
+    return chunk.byteLength;
   },
-  isModuleReference(reference: Object): boolean {
-    return reference.$$typeof === Symbol.for('react.module.reference');
+  isClientReference(reference: Object): boolean {
+    return reference.$$typeof === Symbol.for('react.client.reference');
   },
-  getModuleKey(reference: Object): Object {
+  isServerReference(reference: Object): boolean {
+    return reference.$$typeof === Symbol.for('react.server.reference');
+  },
+  getClientReferenceKey(reference: Object): Object {
     return reference;
   },
-  resolveModuleMetaData(
+  resolveClientReferenceMetadata(
     config: void,
     reference: {$$typeof: symbol, value: any},
   ) {
@@ -63,23 +72,46 @@ const ReactNoopFlightServer = ReactFlightServer({
 });
 
 type Options = {
-  onError?: (error: mixed) => void,
-  context?: Array<[string, ServerContextJSONValue]>,
+  environmentName?: string | (() => string),
+  filterStackFrame?: (url: string, functionName: string) => boolean,
   identifierPrefix?: string,
+  signal?: AbortSignal,
+  debugChannel?: {onMessage?: (message: string) => void},
+  onError?: (error: mixed) => void,
+  startTime?: number,
 };
 
-function render(model: ReactModel, options?: Options): Destination {
+function render(model: ReactClientValue, options?: Options): Destination {
   const destination: Destination = [];
   const bundlerConfig = undefined;
   const request = ReactNoopFlightServer.createRequest(
     model,
+    // $FlowFixMe[incompatible-type]
     bundlerConfig,
     options ? options.onError : undefined,
-    options ? options.context : undefined,
     options ? options.identifierPrefix : undefined,
+    undefined,
+    options ? options.startTime : undefined,
+    __DEV__ && options ? options.environmentName : undefined,
+    __DEV__ && options ? options.filterStackFrame : undefined,
+    // $FlowFixMe[incompatible-type]
+    __DEV__ && options && options.debugChannel !== undefined,
   );
+  const signal = options ? options.signal : undefined;
+  if (signal) {
+    ReactNoopFlightServer.attachAbortSignal(request, signal);
+  }
+  if (__DEV__ && options && options.debugChannel !== undefined) {
+    options.debugChannel.onMessage = message => {
+      ReactNoopFlightServer.resolveDebugMessage(request, message);
+    };
+  }
   ReactNoopFlightServer.startWork(request);
-  ReactNoopFlightServer.startFlowing(request, destination);
+  ReactNoopFlightServer.startFlowing(
+    request,
+    // $FlowFixMe[incompatible-type]
+    destination,
+  );
   return destination;
 }
 

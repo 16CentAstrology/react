@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  *
  * @emails react-core
+ * @jest-environment ./scripts/jest/ReactDOMServerIntegrationEnvironment
  */
 
 'use strict';
@@ -12,23 +13,20 @@
 const ReactDOMServerIntegrationUtils = require('./utils/ReactDOMServerIntegrationTestUtils');
 
 let React;
-let ReactDOM;
+let ReactDOMClient;
 let ReactDOMServer;
-let ReactTestUtils;
 
 function initModules() {
   // Reset warning cache.
-  jest.resetModuleRegistry();
+  jest.resetModules();
   React = require('react');
-  ReactDOM = require('react-dom');
+  ReactDOMClient = require('react-dom/client');
   ReactDOMServer = require('react-dom/server');
-  ReactTestUtils = require('react-dom/test-utils');
 
   // Make them available to the helpers.
   return {
-    ReactDOM,
+    ReactDOMClient,
     ReactDOMServer,
-    ReactTestUtils,
   };
 }
 
@@ -40,7 +38,7 @@ describe('ReactDOMServerIntegrationProgress', () => {
   });
 
   itRenders('a progress in an indeterminate state', async render => {
-    // Regression test for https://github.com/facebook/react/issues/6119
+    // Regression test for https://github.com/react/react/issues/6119
     const e = await render(<progress value={null} />);
     expect(e.hasAttribute('value')).toBe(false);
     const e2 = await render(<progress value={50} />);

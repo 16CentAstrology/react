@@ -8,8 +8,6 @@
  * @jest-environment node
  */
 
-/* eslint-disable no-func-assign */
-
 'use strict';
 
 import {useInsertionEffect} from 'react';
@@ -26,33 +24,38 @@ describe('useEffectEvent', () => {
   let useEffect;
   let useLayoutEffect;
   let useMemo;
+  let waitForAll;
+  let assertLog;
+  let waitForThrow;
+  let waitFor;
 
   beforeEach(() => {
     React = require('react');
     ReactNoop = require('react-noop-renderer');
     Scheduler = require('scheduler');
 
-    act = require('jest-react').act;
+    act = require('internal-test-utils').act;
     createContext = React.createContext;
     useContext = React.useContext;
     useState = React.useState;
-    useEffectEvent = React.experimental_useEffectEvent;
+    useEffectEvent = React.useEffectEvent;
     useEffect = React.useEffect;
     useLayoutEffect = React.useLayoutEffect;
     useMemo = React.useMemo;
+
+    const InternalTestUtils = require('internal-test-utils');
+    waitForAll = InternalTestUtils.waitForAll;
+    assertLog = InternalTestUtils.assertLog;
+    waitForThrow = InternalTestUtils.waitForThrow;
+    waitFor = InternalTestUtils.waitFor;
   });
 
-  function span(prop) {
-    return {type: 'span', hidden: false, children: [], prop};
-  }
-
   function Text(props) {
-    Scheduler.unstable_yieldValue(props.text);
+    Scheduler.log(props.text);
     return <span prop={props.text} />;
   }
 
-  // @gate enableUseEffectEventHook
-  it('memoizes basic case correctly', () => {
+  it('memoizes basic case correctly', async () => {
     class IncrementButton extends React.PureComponent {
       increment = () => {
         this.props.onClick();
@@ -76,49 +79,58 @@ describe('useEffectEvent', () => {
 
     const button = React.createRef(null);
     ReactNoop.render(<Counter incrementBy={1} />);
-    expect(Scheduler).toFlushAndYield(['Increment', 'Count: 0']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 0'),
-    ]);
+    await waitForAll(['Increment', 'Count: 0']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 0" />
+      </>,
+    );
 
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded(['Increment', 'Count: 1']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 1'),
-    ]);
+    await act(() => button.current.increment());
+    assertLog(['Increment', 'Count: 1']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 1" />
+      </>,
+    );
 
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded([
+    await act(() => button.current.increment());
+    assertLog([
       'Increment',
       // Event should use the updated callback function closed over the new value.
       'Count: 2',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 2'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 2" />
+      </>,
+    );
 
     // Increase the increment prop amount
     ReactNoop.render(<Counter incrementBy={10} />);
-    expect(Scheduler).toFlushAndYield(['Increment', 'Count: 2']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 2'),
-    ]);
+    await waitForAll(['Increment', 'Count: 2']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 2" />
+      </>,
+    );
 
     // Event uses the new prop
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded(['Increment', 'Count: 12']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 12'),
-    ]);
+    await act(() => button.current.increment());
+    assertLog(['Increment', 'Count: 12']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 12" />
+      </>,
+    );
   });
 
-  // @gate enableUseEffectEventHook
-  it('can be defined more than once', () => {
+  it('can be defined more than once', async () => {
     class IncrementButton extends React.PureComponent {
       increment = () => {
         this.props.onClick();
@@ -152,29 +164,34 @@ describe('useEffectEvent', () => {
 
     const button = React.createRef(null);
     ReactNoop.render(<Counter incrementBy={5} />);
-    expect(Scheduler).toFlushAndYield(['Increment', 'Count: 0']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 0'),
-    ]);
+    await waitForAll(['Increment', 'Count: 0']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 0" />
+      </>,
+    );
 
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded(['Increment', 'Count: 5']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 5'),
-    ]);
+    await act(() => button.current.increment());
+    assertLog(['Increment', 'Count: 5']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 5" />
+      </>,
+    );
 
-    act(button.current.multiply);
-    expect(Scheduler).toHaveYielded(['Increment', 'Count: 25']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 25'),
-    ]);
+    await act(() => button.current.multiply());
+    assertLog(['Increment', 'Count: 25']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 25" />
+      </>,
+    );
   });
 
-  // @gate enableUseEffectEventHook
-  it('does not preserve `this` in event functions', () => {
+  it('does not preserve `this` in event functions', async () => {
     class GreetButton extends React.PureComponent {
       greet = () => {
         this.props.onClick();
@@ -205,25 +222,25 @@ describe('useEffectEvent', () => {
 
     const button = React.createRef(null);
     ReactNoop.render(<Greeter hello={'hej'} />);
-    expect(Scheduler).toFlushAndYield(['Say hej', 'Greeting: Seb says hej']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Say hej'),
-      span('Greeting: Seb says hej'),
-    ]);
+    await waitForAll(['Say hej', 'Greeting: Seb says hej']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Say hej" />
+        <span prop="Greeting: Seb says hej" />
+      </>,
+    );
 
-    act(button.current.greet);
-    expect(Scheduler).toHaveYielded([
-      'Say hej',
-      'Greeting: undefined says hej',
-    ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Say hej'),
-      span('Greeting: undefined says hej'),
-    ]);
+    await act(() => button.current.greet());
+    assertLog(['Say hej', 'Greeting: undefined says hej']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Say hej" />
+        <span prop="Greeting: undefined says hej" />
+      </>,
+    );
   });
 
-  // @gate enableUseEffectEventHook
-  it('throws when called in render', () => {
+  it('throws when called in render', async () => {
     class IncrementButton extends React.PureComponent {
       increment = () => {
         this.props.onClick();
@@ -250,17 +267,13 @@ describe('useEffectEvent', () => {
     }
 
     ReactNoop.render(<Counter incrementBy={1} />);
-    expect(Scheduler).toFlushAndThrow(
+    await waitForThrow(
       "A function wrapped in useEffectEvent can't be called during rendering.",
     );
-
-    // If something throws, we try one more time synchronously in case the error was
-    // caused by a data race. See recoverFromConcurrentError
-    expect(Scheduler).toHaveYielded(['Count: 0', 'Count: 0']);
+    assertLog([]);
   });
 
-  // @gate enableUseEffectEventHook
-  it("useLayoutEffect shouldn't re-fire when event handlers change", () => {
+  it("useLayoutEffect shouldn't re-fire when event handlers change", async () => {
     class IncrementButton extends React.PureComponent {
       increment = () => {
         this.props.onClick();
@@ -277,7 +290,7 @@ describe('useEffectEvent', () => {
       );
 
       useLayoutEffect(() => {
-        Scheduler.unstable_yieldValue('Effect: by ' + incrementBy * 2);
+        Scheduler.log('Effect: by ' + incrementBy * 2);
         increment(incrementBy * 2);
       }, [incrementBy]);
 
@@ -291,66 +304,75 @@ describe('useEffectEvent', () => {
 
     const button = React.createRef(null);
     ReactNoop.render(<Counter incrementBy={1} />);
-    expect(Scheduler).toHaveYielded([]);
-    expect(Scheduler).toFlushAndYield([
+    assertLog([]);
+    await waitForAll([
       'Increment',
       'Count: 0',
       'Effect: by 2',
       'Increment',
       'Count: 2',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 2'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 2" />
+      </>,
+    );
 
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded([
+    await act(() => button.current.increment());
+    assertLog([
       'Increment',
       // Effect should not re-run because the dependency hasn't changed.
       'Count: 3',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 3'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 3" />
+      </>,
+    );
 
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded([
+    await act(() => button.current.increment());
+    assertLog([
       'Increment',
       // Event should use the updated callback function closed over the new value.
       'Count: 4',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 4'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 4" />
+      </>,
+    );
 
     // Increase the increment prop amount
     ReactNoop.render(<Counter incrementBy={10} />);
-    expect(Scheduler).toFlushAndYield([
+    await waitForAll([
       'Increment',
       'Count: 4',
       'Effect: by 20',
       'Increment',
       'Count: 24',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 24'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 24" />
+      </>,
+    );
 
     // Event uses the new prop
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded(['Increment', 'Count: 34']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 34'),
-    ]);
+    await act(() => button.current.increment());
+    assertLog(['Increment', 'Count: 34']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 34" />
+      </>,
+    );
   });
 
-  // @gate enableUseEffectEventHook
-  it("useEffect shouldn't re-fire when event handlers change", () => {
+  it("useEffect shouldn't re-fire when event handlers change", async () => {
     class IncrementButton extends React.PureComponent {
       increment = () => {
         this.props.onClick();
@@ -367,7 +389,7 @@ describe('useEffectEvent', () => {
       );
 
       useEffect(() => {
-        Scheduler.unstable_yieldValue('Effect: by ' + incrementBy * 2);
+        Scheduler.log('Effect: by ' + incrementBy * 2);
         increment(incrementBy * 2);
       }, [incrementBy]);
 
@@ -381,65 +403,74 @@ describe('useEffectEvent', () => {
 
     const button = React.createRef(null);
     ReactNoop.render(<Counter incrementBy={1} />);
-    expect(Scheduler).toFlushAndYield([
+    await waitForAll([
       'Increment',
       'Count: 0',
       'Effect: by 2',
       'Increment',
       'Count: 2',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 2'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 2" />
+      </>,
+    );
 
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded([
+    await act(() => button.current.increment());
+    assertLog([
       'Increment',
       // Effect should not re-run because the dependency hasn't changed.
       'Count: 3',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 3'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 3" />
+      </>,
+    );
 
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded([
+    await act(() => button.current.increment());
+    assertLog([
       'Increment',
       // Event should use the updated callback function closed over the new value.
       'Count: 4',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 4'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 4" />
+      </>,
+    );
 
     // Increase the increment prop amount
     ReactNoop.render(<Counter incrementBy={10} />);
-    expect(Scheduler).toFlushAndYield([
+    await waitForAll([
       'Increment',
       'Count: 4',
       'Effect: by 20',
       'Increment',
       'Count: 24',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 24'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 24" />
+      </>,
+    );
 
     // Event uses the new prop
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded(['Increment', 'Count: 34']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 34'),
-    ]);
+    await act(() => button.current.increment());
+    assertLog(['Increment', 'Count: 34']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 34" />
+      </>,
+    );
   });
 
-  // @gate enableUseEffectEventHook
-  it('is stable in a custom hook', () => {
+  it('is stable in a custom hook', async () => {
     class IncrementButton extends React.PureComponent {
       increment = () => {
         this.props.onClick();
@@ -462,7 +493,7 @@ describe('useEffectEvent', () => {
       const [count, increment] = useCount(incrementBy);
 
       useEffect(() => {
-        Scheduler.unstable_yieldValue('Effect: by ' + incrementBy * 2);
+        Scheduler.log('Effect: by ' + incrementBy * 2);
         increment(incrementBy * 2);
       }, [incrementBy]);
 
@@ -476,92 +507,387 @@ describe('useEffectEvent', () => {
 
     const button = React.createRef(null);
     ReactNoop.render(<Counter incrementBy={1} />);
-    expect(Scheduler).toFlushAndYield([
+    await waitForAll([
       'Increment',
       'Count: 0',
       'Effect: by 2',
       'Increment',
       'Count: 2',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 2'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 2" />
+      </>,
+    );
 
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded([
+    await act(() => button.current.increment());
+    assertLog([
       'Increment',
       // Effect should not re-run because the dependency hasn't changed.
       'Count: 3',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 3'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 3" />
+      </>,
+    );
 
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded([
+    await act(() => button.current.increment());
+    assertLog([
       'Increment',
       // Event should use the updated callback function closed over the new value.
       'Count: 4',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 4'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 4" />
+      </>,
+    );
 
     // Increase the increment prop amount
     ReactNoop.render(<Counter incrementBy={10} />);
-    expect(Scheduler).toFlushAndYield([
+    await waitForAll([
       'Increment',
       'Count: 4',
       'Effect: by 20',
       'Increment',
       'Count: 24',
     ]);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 24'),
-    ]);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 24" />
+      </>,
+    );
 
     // Event uses the new prop
-    act(button.current.increment);
-    expect(Scheduler).toHaveYielded(['Increment', 'Count: 34']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Increment'),
-      span('Count: 34'),
-    ]);
+    await act(() => button.current.increment());
+    assertLog(['Increment', 'Count: 34']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <>
+        <span prop="Increment" />
+        <span prop="Count: 34" />
+      </>,
+    );
   });
 
-  // @gate enableUseEffectEventHook
-  it('is mutated before all other effects', () => {
+  it('is mutated before all other effects', async () => {
     function Counter({value}) {
       useInsertionEffect(() => {
-        Scheduler.unstable_yieldValue('Effect value: ' + value);
+        Scheduler.log('Effect value: ' + value);
         increment();
       }, [value]);
 
       // This is defined after the insertion effect, but it should
       // update the event fn _before_ the insertion effect fires.
       const increment = useEffectEvent(() => {
-        Scheduler.unstable_yieldValue('Event value: ' + value);
+        Scheduler.log('Event value: ' + value);
       });
 
       return <></>;
     }
 
     ReactNoop.render(<Counter value={1} />);
-    expect(Scheduler).toFlushAndYield(['Effect value: 1', 'Event value: 1']);
+    await waitForAll(['Effect value: 1', 'Event value: 1']);
 
-    act(() => ReactNoop.render(<Counter value={2} />));
-    expect(Scheduler).toHaveYielded(['Effect value: 2', 'Event value: 2']);
+    await act(() => ReactNoop.render(<Counter value={2} />));
+    assertLog(['Effect value: 2', 'Event value: 2']);
   });
 
-  // @gate enableUseEffectEventHook
-  it("doesn't provide a stable identity", () => {
+  it('fires all (interleaved) effects with useEffectEvent in correct order', async () => {
+    function CounterA({count}) {
+      const onEvent = useEffectEvent(() => {
+        return `A ${count}`;
+      });
+
+      useInsertionEffect(() => {
+        // Call the event function to verify it sees the latest value
+        Scheduler.log(`Parent Insertion Create: ${onEvent()}`);
+        return () => {
+          Scheduler.log(`Parent Insertion Create: ${onEvent()}`);
+        };
+      });
+
+      useLayoutEffect(() => {
+        Scheduler.log(`Parent Layout Create: ${onEvent()}`);
+        return () => {
+          Scheduler.log(`Parent Layout Cleanup: ${onEvent()}`);
+        };
+      });
+
+      useEffect(() => {
+        Scheduler.log(`Parent Passive Create: ${onEvent()}`);
+        return () => {
+          Scheduler.log(`Parent Passive Destroy ${onEvent()}`);
+        };
+      });
+
+      // this breaks the rules, but ensures the ordering is correct.
+      return <CounterB count={count} onEventParent={onEvent} />;
+    }
+
+    function CounterB({count, onEventParent}) {
+      const onEvent = useEffectEvent(() => {
+        return `${onEventParent()} B ${count}`;
+      });
+
+      useInsertionEffect(() => {
+        Scheduler.log(`Child Insertion Create ${onEvent()}`);
+        return () => {
+          Scheduler.log(`Child Insertion Destroy ${onEvent()}`);
+        };
+      });
+
+      useLayoutEffect(() => {
+        Scheduler.log(`Child Layout Create ${onEvent()}`);
+        return () => {
+          Scheduler.log(`Child Layout Destroy ${onEvent()}`);
+        };
+      });
+
+      useEffect(() => {
+        Scheduler.log(`Child Passive Create ${onEvent()}`);
+        return () => {
+          Scheduler.log(`Child Passive Destroy ${onEvent()}`);
+        };
+      });
+
+      return null;
+    }
+
+    await act(async () => {
+      ReactNoop.render(<CounterA count={1} />);
+    });
+
+    assertLog([
+      'Child Insertion Create A 1 B 1',
+      'Parent Insertion Create: A 1',
+      'Child Layout Create A 1 B 1',
+      'Parent Layout Create: A 1',
+      'Child Passive Create A 1 B 1',
+      'Parent Passive Create: A 1',
+    ]);
+
+    await act(async () => {
+      ReactNoop.render(<CounterA count={2} />);
+    });
+
+    assertLog([
+      'Child Insertion Destroy A 2 B 2',
+      'Child Insertion Create A 2 B 2',
+      'Child Layout Destroy A 2 B 2',
+      'Parent Insertion Create: A 2',
+      'Parent Insertion Create: A 2',
+      'Parent Layout Cleanup: A 2',
+      'Child Layout Create A 2 B 2',
+      'Parent Layout Create: A 2',
+      'Child Passive Destroy A 2 B 2',
+      'Parent Passive Destroy A 2',
+      'Child Passive Create A 2 B 2',
+      'Parent Passive Create: A 2',
+    ]);
+
+    // Unmount everything
+    await act(async () => {
+      ReactNoop.render(null);
+    });
+
+    assertLog([
+      'Parent Insertion Create: A 2',
+      'Parent Layout Cleanup: A 2',
+      'Child Insertion Destroy A 2 B 2',
+      'Child Layout Destroy A 2 B 2',
+      'Parent Passive Destroy A 2',
+      'Child Passive Destroy A 2 B 2',
+    ]);
+  });
+
+  it('correctly mutates effect event with Activity', async () => {
+    let setState;
+    let setChildState;
+    function CounterA({count, hideChild}) {
+      const [state, _setState] = useState(1);
+      setState = _setState;
+      const onEvent = useEffectEvent(() => {
+        return `A ${count} ${state}`;
+      });
+
+      useInsertionEffect(() => {
+        // Call the event function to verify it sees the latest value
+        Scheduler.log(`Parent Insertion Create: ${onEvent()}`);
+        return () => {
+          Scheduler.log(`Parent Insertion Create: ${onEvent()}`);
+        };
+      });
+
+      useLayoutEffect(() => {
+        Scheduler.log(`Parent Layout Create: ${onEvent()}`);
+        return () => {
+          Scheduler.log(`Parent Layout Cleanup: ${onEvent()}`);
+        };
+      });
+
+      // this breaks the rules, but ensures the ordering is correct.
+      return (
+        <React.Activity mode={hideChild ? 'hidden' : 'visible'}>
+          <CounterB count={count} state={state} onEventParent={onEvent} />
+        </React.Activity>
+      );
+    }
+
+    function CounterB({count, state, onEventParent}) {
+      const [childState, _setChildState] = useState(1);
+      setChildState = _setChildState;
+      const onEvent = useEffectEvent(() => {
+        return `${onEventParent()} B ${count} ${state} ${childState}`;
+      });
+
+      useInsertionEffect(() => {
+        Scheduler.log(`Child Insertion Create ${onEvent()}`);
+        return () => {
+          Scheduler.log(`Child Insertion Destroy ${onEvent()}`);
+        };
+      });
+
+      useLayoutEffect(() => {
+        Scheduler.log(`Child Layout Create ${onEvent()}`);
+        return () => {
+          Scheduler.log(`Child Layout Destroy ${onEvent()}`);
+        };
+      });
+
+      useEffect(() => {
+        Scheduler.log(`Child Passive Create ${onEvent()}`);
+        return () => {
+          Scheduler.log(`Child Passive Destroy ${onEvent()}`);
+        };
+      });
+
+      return null;
+    }
+
+    await act(async () => {
+      ReactNoop.render(<CounterA count={1} hideChild={true} />);
+      await waitFor([
+        'Parent Insertion Create: A 1 1',
+        'Parent Layout Create: A 1 1',
+        'Child Insertion Create A 1 1 B 1 1 1',
+      ]);
+    });
+
+    assertLog([]);
+
+    await act(async () => {
+      ReactNoop.render(<CounterA count={2} hideChild={true} />);
+
+      await waitFor([
+        'Parent Insertion Create: A 2 1',
+        'Parent Insertion Create: A 2 1',
+        'Parent Layout Cleanup: A 2 1',
+        'Parent Layout Create: A 2 1',
+        'Child Insertion Destroy A 2 1 B 2 1 1',
+        'Child Insertion Create A 2 1 B 2 1 1',
+      ]);
+    });
+
+    assertLog([]);
+
+    await act(async () => {
+      setState(2);
+
+      await waitFor([
+        'Parent Insertion Create: A 2 2',
+        'Parent Insertion Create: A 2 2',
+        'Parent Layout Cleanup: A 2 2',
+        'Parent Layout Create: A 2 2',
+        'Child Insertion Destroy A 2 2 B 2 2 1',
+        'Child Insertion Create A 2 2 B 2 2 1',
+      ]);
+    });
+
+    assertLog([]);
+
+    await act(async () => {
+      setChildState(2);
+
+      await waitFor([
+        'Child Insertion Destroy A 2 2 B 2 2 2',
+        'Child Insertion Create A 2 2 B 2 2 2',
+      ]);
+    });
+
+    assertLog([]);
+
+    await act(async () => {
+      ReactNoop.render(<CounterA count={3} hideChild={true} />);
+
+      await waitFor([
+        'Parent Insertion Create: A 3 2',
+        'Parent Insertion Create: A 3 2',
+        'Parent Layout Cleanup: A 3 2',
+        'Parent Layout Create: A 3 2',
+      ]);
+    });
+
+    assertLog([
+      'Child Insertion Destroy A 3 2 B 3 2 2',
+      'Child Insertion Create A 3 2 B 3 2 2',
+    ]);
+
+    await act(async () => {
+      ReactNoop.render(<CounterA count={3} hideChild={false} />);
+
+      await waitFor([
+        'Child Insertion Destroy A 3 2 B 3 2 2',
+        'Child Insertion Create A 3 2 B 3 2 2',
+        'Parent Insertion Create: A 3 2',
+        'Parent Insertion Create: A 3 2',
+        'Parent Layout Cleanup: A 3 2',
+        'Child Layout Create A 3 2 B 3 2 2',
+
+        'Parent Layout Create: A 3 2',
+      ]);
+    });
+
+    assertLog(['Child Passive Create A 3 2 B 3 2 2']);
+
+    await act(async () => {
+      ReactNoop.render(<CounterA count={3} hideChild={true} />);
+
+      await waitFor([
+        'Child Layout Destroy A 3 2 B 3 2 2',
+        'Parent Insertion Create: A 3 2',
+        'Parent Insertion Create: A 3 2',
+        'Parent Layout Cleanup: A 3 2',
+        'Parent Layout Create: A 3 2',
+        'Child Passive Destroy A 3 2 B 3 2 2',
+      ]);
+    });
+
+    assertLog([
+      'Child Insertion Destroy A 3 2 B 3 2 2',
+      'Child Insertion Create A 3 2 B 3 2 2',
+    ]);
+
+    // Unmount everything
+    await act(async () => {
+      ReactNoop.render(null);
+    });
+
+    assertLog([
+      'Parent Insertion Create: A 3 2',
+      'Parent Layout Cleanup: A 3 2',
+      'Child Insertion Destroy A 3 2 B 3 2 2',
+    ]);
+  });
+
+  it("doesn't provide a stable identity", async () => {
     function Counter({shouldRender, value}) {
       const onClick = useEffectEvent(() => {
-        Scheduler.unstable_yieldValue(
+        Scheduler.log(
           'onClick, shouldRender=' + shouldRender + ', value=' + value,
         );
       });
@@ -581,22 +907,21 @@ describe('useEffectEvent', () => {
     }
 
     ReactNoop.render(<Counter shouldRender={true} value={0} />);
-    expect(Scheduler).toFlushAndYield([
+    await waitForAll([
       'onClick, shouldRender=true, value=0',
       'onClick, shouldRender=true, value=0',
     ]);
 
     ReactNoop.render(<Counter shouldRender={true} value={1} />);
-    expect(Scheduler).toFlushAndYield(['onClick, shouldRender=true, value=1']);
+    await waitForAll(['onClick, shouldRender=true, value=1']);
 
     ReactNoop.render(<Counter shouldRender={false} value={2} />);
-    expect(Scheduler).toFlushAndYield([
+    await waitForAll([
       'onClick, shouldRender=false, value=2',
       'onClick, shouldRender=false, value=2',
     ]);
   });
 
-  // @gate enableUseEffectEventHook
   it('event handlers always see the latest committed value', async () => {
     let committedEventHandler = null;
 
@@ -611,7 +936,7 @@ describe('useEffectEvent', () => {
         () => {
           // Log when the effect fires. In the test below, we'll assert that this
           // only happens during initial render, not during updates.
-          Scheduler.unstable_yieldValue('Commit new event handler');
+          Scheduler.log('Commit new event handler');
           committedEventHandler = event;
           return () => {
             committedEventHandler = null;
@@ -627,27 +952,26 @@ describe('useEffectEvent', () => {
 
     // Initial render
     const root = ReactNoop.createRoot();
-    await act(async () => {
+    await act(() => {
       root.render(<App value={1} />);
     });
-    expect(Scheduler).toHaveYielded(['Commit new event handler']);
+    assertLog(['Commit new event handler']);
     expect(root).toMatchRenderedOutput('Latest rendered value 1');
     expect(committedEventHandler()).toBe('Value seen by useEffectEvent: 1');
 
     // Update
-    await act(async () => {
+    await act(() => {
       root.render(<App value={2} />);
     });
     // No new event handler should be committed, because it was omitted from
     // the dependency array.
-    expect(Scheduler).toHaveYielded([]);
+    assertLog([]);
     // But the event handler should still be able to see the latest value.
     expect(root).toMatchRenderedOutput('Latest rendered value 2');
     expect(committedEventHandler()).toBe('Value seen by useEffectEvent: 2');
   });
 
-  // @gate enableUseEffectEventHook
-  it('integration: implements docs chat room example', () => {
+  it('integration: implements docs chat room example', async () => {
     function createConnection() {
       let connectedCallback;
       let timeout;
@@ -676,7 +1000,7 @@ describe('useEffectEvent', () => {
 
     function ChatRoom({roomId, theme}) {
       const onConnected = useEffectEvent(() => {
-        Scheduler.unstable_yieldValue('Connected! theme: ' + theme);
+        Scheduler.log('Connected! theme: ' + theme);
       });
 
       useEffect(() => {
@@ -691,52 +1015,51 @@ describe('useEffectEvent', () => {
       return <Text text={`Welcome to the ${roomId} room!`} />;
     }
 
-    act(() => ReactNoop.render(<ChatRoom roomId="general" theme="light" />));
-    expect(Scheduler).toHaveYielded(['Welcome to the general room!']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Welcome to the general room!'),
-    ]);
+    await act(() =>
+      ReactNoop.render(<ChatRoom roomId="general" theme="light" />),
+    );
 
-    jest.advanceTimersByTime(100);
-    Scheduler.unstable_advanceTime(100);
-    expect(Scheduler).toHaveYielded(['Connected! theme: light']);
+    assertLog(['Welcome to the general room!', 'Connected! theme: light']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <span prop="Welcome to the general room!" />,
+    );
 
     // change roomId only
-    act(() => ReactNoop.render(<ChatRoom roomId="music" theme="light" />));
-    expect(Scheduler).toHaveYielded(['Welcome to the music room!']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Welcome to the music room!'),
+    await act(() =>
+      ReactNoop.render(<ChatRoom roomId="music" theme="light" />),
+    );
+    assertLog([
+      'Welcome to the music room!',
+      // should trigger a reconnect
+      'Connected! theme: light',
     ]);
-    jest.advanceTimersByTime(100);
-    Scheduler.unstable_advanceTime(100);
-    // should trigger a reconnect
-    expect(Scheduler).toHaveYielded(['Connected! theme: light']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <span prop="Welcome to the music room!" />,
+    );
 
     // change theme only
-    act(() => ReactNoop.render(<ChatRoom roomId="music" theme="dark" />));
-    expect(Scheduler).toHaveYielded(['Welcome to the music room!']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Welcome to the music room!'),
-    ]);
-    jest.advanceTimersByTime(100);
-    Scheduler.unstable_advanceTime(100);
+    await act(() => ReactNoop.render(<ChatRoom roomId="music" theme="dark" />));
     // should not trigger a reconnect
-    expect(Scheduler).toFlushWithoutYielding();
+    assertLog(['Welcome to the music room!']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <span prop="Welcome to the music room!" />,
+    );
 
     // change roomId only
-    act(() => ReactNoop.render(<ChatRoom roomId="travel" theme="dark" />));
-    expect(Scheduler).toHaveYielded(['Welcome to the travel room!']);
-    expect(ReactNoop.getChildren()).toEqual([
-      span('Welcome to the travel room!'),
+    await act(() =>
+      ReactNoop.render(<ChatRoom roomId="travel" theme="dark" />),
+    );
+    assertLog([
+      'Welcome to the travel room!',
+      // should trigger a reconnect
+      'Connected! theme: dark',
     ]);
-    jest.advanceTimersByTime(100);
-    Scheduler.unstable_advanceTime(100);
-    // should trigger a reconnect
-    expect(Scheduler).toHaveYielded(['Connected! theme: dark']);
+    expect(ReactNoop).toMatchRenderedOutput(
+      <span prop="Welcome to the travel room!" />,
+    );
   });
 
-  // @gate enableUseEffectEventHook
-  it('integration: implements the docs logVisit example', () => {
+  it('integration: implements the docs logVisit example', async () => {
     class AddToCartButton extends React.PureComponent {
       addToCart = () => {
         this.props.onClick();
@@ -764,7 +1087,7 @@ describe('useEffectEvent', () => {
       const numberOfItems = items.length;
 
       const onVisit = useEffectEvent(visitedUrl => {
-        Scheduler.unstable_yieldValue(
+        Scheduler.log(
           'url: ' + visitedUrl + ', numberOfItems: ' + numberOfItems,
         );
       });
@@ -784,30 +1107,154 @@ describe('useEffectEvent', () => {
     }
 
     const button = React.createRef(null);
-    act(() =>
+    await act(() =>
       ReactNoop.render(
         <AppShell>
           <Page url="/shop/1" />
         </AppShell>,
       ),
     );
-    expect(Scheduler).toHaveYielded([
-      'Add to cart',
-      'url: /shop/1, numberOfItems: 0',
-    ]);
-    act(button.current.addToCart);
-    expect(Scheduler).toHaveYielded(['Add to cart']);
+    assertLog(['Add to cart', 'url: /shop/1, numberOfItems: 0']);
+    await act(() => button.current.addToCart());
+    assertLog(['Add to cart']);
 
-    act(() =>
+    await act(() =>
       ReactNoop.render(
         <AppShell>
           <Page url="/shop/2" />
         </AppShell>,
       ),
     );
-    expect(Scheduler).toHaveYielded([
-      'Add to cart',
-      'url: /shop/2, numberOfItems: 1',
+    assertLog(['Add to cart', 'url: /shop/2, numberOfItems: 1']);
+  });
+
+  it('reads the latest context value in memo Components', async () => {
+    const MyContext = createContext('default');
+
+    let logContextValue;
+    const ContextReader = React.memo(function ContextReader() {
+      const value = useContext(MyContext);
+      Scheduler.log('ContextReader: ' + value);
+      const fireLogContextValue = useEffectEvent(() => {
+        Scheduler.log('ContextReader (Effect event): ' + value);
+      });
+      useEffect(() => {
+        logContextValue = fireLogContextValue;
+      }, []);
+      return null;
+    });
+
+    function App({value}) {
+      return (
+        <MyContext.Provider value={value}>
+          <ContextReader />
+        </MyContext.Provider>
+      );
+    }
+
+    const root = ReactNoop.createRoot();
+    await act(() => root.render(<App value="first" />));
+    assertLog(['ContextReader: first']);
+
+    logContextValue();
+
+    assertLog(['ContextReader (Effect event): first']);
+
+    await act(() => root.render(<App value="second" />));
+    assertLog(['ContextReader: second']);
+
+    logContextValue();
+    assertLog(['ContextReader (Effect event): second']);
+  });
+
+  it('reads the latest context value in forwardRef Components', async () => {
+    const MyContext = createContext('default');
+
+    let logContextValue;
+    const ContextReader = React.forwardRef(function ContextReader(props, ref) {
+      const value = useContext(MyContext);
+      Scheduler.log('ContextReader: ' + value);
+      const fireLogContextValue = useEffectEvent(() => {
+        Scheduler.log('ContextReader (Effect event): ' + value);
+      });
+      useEffect(() => {
+        logContextValue = fireLogContextValue;
+      }, []);
+      return null;
+    });
+
+    function App({value}) {
+      return (
+        <MyContext.Provider value={value}>
+          <ContextReader />
+        </MyContext.Provider>
+      );
+    }
+
+    const root = ReactNoop.createRoot();
+    await act(() => root.render(<App value="first" />));
+    assertLog(['ContextReader: first']);
+
+    logContextValue();
+
+    assertLog(['ContextReader (Effect event): first']);
+
+    await act(() => root.render(<App value="second" />));
+    assertLog(['ContextReader: second']);
+
+    logContextValue();
+    assertLog(['ContextReader (Effect event): second']);
+  });
+
+  it('effect events are fresh inside Activity', async () => {
+    function Child({value}) {
+      const getValue = useEffectEvent(() => {
+        return value;
+      });
+      useInsertionEffect(() => {
+        Scheduler.log('insertion create: ' + getValue());
+        return () => {
+          Scheduler.log('insertion destroy: ' + getValue());
+        };
+      });
+      useLayoutEffect(() => {
+        Scheduler.log('layout create: ' + getValue());
+        return () => {
+          Scheduler.log('layout destroy: ' + getValue());
+        };
+      });
+
+      Scheduler.log('render: ' + value);
+      return null;
+    }
+
+    function App({value, mode}) {
+      return (
+        <React.Activity mode={mode}>
+          <Child value={value} />
+        </React.Activity>
+      );
+    }
+
+    const root = ReactNoop.createRoot();
+
+    // Mount hidden
+    await act(async () => root.render(<App value={1} mode="hidden" />));
+    assertLog(['render: 1', 'insertion create: 1']);
+
+    // Update, still hidden
+    await act(async () => root.render(<App value={2} mode="hidden" />));
+
+    assertLog(['render: 2', 'insertion destroy: 2', 'insertion create: 2']);
+
+    // Switch to visible
+    await act(async () => root.render(<App value={2} mode="visible" />));
+
+    assertLog([
+      'render: 2',
+      'insertion destroy: 2',
+      'insertion create: 2',
+      'layout create: 2',
     ]);
   });
 });

@@ -7,14 +7,12 @@
  * @flow
  */
 
-import type {Instance} from 'react-reconciler/src/ReactFiberHostConfig';
 import type {FiberRoot} from 'react-reconciler/src/ReactInternalTypes';
 import type {
   Family,
   RefreshUpdate,
   ScheduleRefresh,
   ScheduleRoot,
-  FindHostInstancesForRefresh,
   SetRefreshHandler,
 } from 'react-reconciler/src/ReactFiberHotReloading';
 import type {ReactNodeList} from 'shared/ReactTypes';
@@ -29,7 +27,6 @@ type Signature = {
 };
 
 type RendererHelpers = {
-  findHostInstancesForRefresh: FindHostInstancesForRefresh,
   scheduleRefresh: ScheduleRefresh,
   scheduleRoot: ScheduleRoot,
   setRefreshHandler: SetRefreshHandler,
@@ -47,17 +44,14 @@ const PossiblyWeakMap = typeof WeakMap === 'function' ? WeakMap : Map;
 // We never remove these associations.
 // It's OK to reference families, but use WeakMap/Set for types.
 const allFamiliesByID: Map<string, Family> = new Map();
-const allFamiliesByType:
-  | WeakMap<any, Family>
-  | Map<any, Family> = new PossiblyWeakMap();
-const allSignaturesByType:
-  | WeakMap<any, Signature>
-  | Map<any, Signature> = new PossiblyWeakMap();
+const allFamiliesByType: WeakMap<any, Family> | Map<any, Family> =
+  new PossiblyWeakMap();
+const allSignaturesByType: WeakMap<any, Signature> | Map<any, Signature> =
+  new PossiblyWeakMap();
 // This WeakMap is read by React, so we only put families
 // that have actually been edited here. This keeps checks fast.
-const updatedFamiliesByType:
-  | WeakMap<any, Family>
-  | Map<any, Family> = new PossiblyWeakMap();
+const updatedFamiliesByType: WeakMap<any, Family> | Map<any, Family> =
+  new PossiblyWeakMap();
 
 // This is cleared on every performReactRefresh() call.
 // It is an array of [Family, NextType] tuples.
@@ -152,6 +146,29 @@ function canPreserveStateBetween(prevType: any, nextType: any) {
   if (isReactClass(prevType) || isReactClass(nextType)) {
     return false;
   }
+  // A fiber's tag is derived from the kind of its type (a plain function
+  // vs memo vs forwardRef), and the reconciler can only swap implementations
+  // in place within the same tag. If the kind changed, the tree must remount.
+  if (typeof prevType !== typeof nextType) {
+    return false;
+  }
+  if (typeof prevType === 'object' && prevType !== null && nextType !== null) {
+    if (
+      getProperty(prevType, '$$typeof') !== getProperty(nextType, '$$typeof')
+    ) {
+      return false;
+    }
+    // Switching from SimpleMemoComponent to MemoComponent requires a remount;
+    // for symmetry, remount for the reverse too.
+    if (getProperty(prevType, '$$typeof') === REACT_MEMO_TYPE) {
+      if (
+        (getProperty(prevType, 'compare') === null) !==
+        (getProperty(nextType, 'compare') === null)
+      ) {
+        return false;
+      }
+    }
+  }
   if (haveEqualSignatures(prevType, nextType)) {
     return true;
   }
@@ -165,14 +182,14 @@ function resolveFamily(type: any) {
 
 // If we didn't care about IE11, we could use new Map/Set(iterable).
 function cloneMap<K, V>(map: Map<K, V>): Map<K, V> {
-  const clone = new Map();
+  const clone = new Map<K, V>();
   map.forEach((value, key) => {
     clone.set(key, value);
   });
   return clone;
 }
 function cloneSet<T>(set: Set<T>): Set<T> {
-  const clone = new Set();
+  const clone = new Set<T>();
   set.forEach(value => {
     clone.add(value);
   });
@@ -180,7 +197,7 @@ function cloneSet<T>(set: Set<T>): Set<T> {
 }
 
 // This is a safety mechanism to protect against rogue getters and Proxies.
-function getProperty(object: any, property: string) {
+function getProperty(object: any, property: string): any {
   try {
     return object[property];
   } catch (err) {
@@ -204,8 +221,8 @@ export function performReactRefresh(): RefreshUpdate | null {
 
   isPerformingRefresh = true;
   try {
-    const staleFamilies = new Set();
-    const updatedFamilies = new Set();
+    const staleFamilies = new Set<Family>();
+    const updatedFamilies = new Set<Family>();
 
     const updates = pendingUpdates;
     pendingUpdates = [];
@@ -417,34 +434,6 @@ export function getFamilyByType(type: any): Family | void {
   }
 }
 
-export function findAffectedHostInstances(
-  families: Array<Family>,
-): Set<Instance> {
-  if (__DEV__) {
-    const affectedInstances = new Set();
-    mountedRoots.forEach(root => {
-      const helpers = helpersByRoot.get(root);
-      if (helpers === undefined) {
-        throw new Error(
-          'Could not find helpers for a root. This is a bug in React Refresh.',
-        );
-      }
-      const instancesForRoot = helpers.findHostInstancesForRefresh(
-        root,
-        families,
-      );
-      instancesForRoot.forEach(inst => {
-        affectedInstances.add(inst);
-      });
-    });
-    return affectedInstances;
-  } else {
-    throw new Error(
-      'Unexpected call to React Refresh in a production environment.',
-    );
-  }
-}
-
 export function injectIntoGlobalHook(globalObject: any): void {
   if (__DEV__) {
     // For React Native, the global hook will be set up by require('react-devtools-core').
@@ -490,35 +479,35 @@ export function injectIntoGlobalHook(globalObject: any): void {
 
     // Here, we just want to get a reference to scheduleRefresh.
     const oldInject = hook.inject;
-    hook.inject = function(this: mixed, injected) {
+    hook.inject = function (this: mixed, injected) {
       const id = oldInject.apply(this, arguments);
       if (
         typeof injected.scheduleRefresh === 'function' &&
         typeof injected.setRefreshHandler === 'function'
       ) {
         // This version supports React Refresh.
-        helpersByRendererID.set(id, ((injected: any): RendererHelpers));
+        helpersByRendererID.set(id, injected as any as RendererHelpers);
       }
       return id;
     };
 
     // Do the same for any already injected roots.
     // This is useful if ReactDOM has already been initialized.
-    // https://github.com/facebook/react/issues/17626
+    // https://github.com/react/react/issues/17626
     hook.renderers.forEach((injected, id) => {
       if (
         typeof injected.scheduleRefresh === 'function' &&
         typeof injected.setRefreshHandler === 'function'
       ) {
         // This version supports React Refresh.
-        helpersByRendererID.set(id, ((injected: any): RendererHelpers));
+        helpersByRendererID.set(id, injected as any as RendererHelpers);
       }
     });
 
     // We also want to track currently mounted roots.
     const oldOnCommitFiberRoot = hook.onCommitFiberRoot;
     const oldOnScheduleFiberRoot = hook.onScheduleFiberRoot || (() => {});
-    hook.onScheduleFiberRoot = function(
+    hook.onScheduleFiberRoot = function (
       this: mixed,
       id: number,
       root: FiberRoot,
@@ -534,7 +523,7 @@ export function injectIntoGlobalHook(globalObject: any): void {
       }
       return oldOnScheduleFiberRoot.apply(this, arguments);
     };
-    hook.onCommitFiberRoot = function(
+    hook.onCommitFiberRoot = function (
       this: mixed,
       id: number,
       root: FiberRoot,
@@ -645,10 +634,10 @@ export function createSignatureFunctionForTransform(): <T>(
   getCustomHooks?: () => Array<Function>,
 ) => T | void {
   if (__DEV__) {
-    let savedType;
-    let hasCustomHooks;
+    let savedType: mixed;
+    let hasCustomHooks: boolean;
     let didCollectHooks = false;
-    return function<T>(
+    return function <T>(
       type: T,
       key: string,
       forceReset?: boolean,
@@ -660,13 +649,12 @@ export function createSignatureFunctionForTransform(): <T>(
         // in HOC chains like _s(hoc1(_s(hoc2(_s(actualFunction))))).
         if (!savedType) {
           // We're in the innermost call, so this is the actual type.
-          // $FlowFixMe[escaped-generic] discovered when updating Flow
           savedType = type;
           hasCustomHooks = typeof getCustomHooks === 'function';
         }
         // Set the signature for all types (even wrappers!) in case
         // they have no signatures of their own. This is to prevent
-        // problems like https://github.com/facebook/react/issues/20417.
+        // problems like https://github.com/react/react/issues/20417.
         if (
           type != null &&
           (typeof type === 'function' || typeof type === 'object')
@@ -706,8 +694,10 @@ export function isLikelyComponentType(type: any): boolean {
             // This looks like a class.
             return false;
           }
-          // eslint-disable-next-line no-proto
-          if (type.prototype.__proto__ !== Object.prototype) {
+          if (
+            // $FlowFixMe[prop-missing]
+            type.prototype.__proto__ !== Object.prototype // eslint-disable-line no-proto
+          ) {
             // It has a superclass.
             return false;
           }

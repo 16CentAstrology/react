@@ -2,15 +2,24 @@
 
 module.exports = {
   globalSetup: require.resolve('./setupGlobal.js'),
-  haste: {
-    hasteImplModulePath: require.resolve('./noHaste.js'),
-  },
+  testSequencer: require.resolve('./sizeBalancedSequencer.js'),
   modulePathIgnorePatterns: [
     '<rootDir>/scripts/rollup/shims/',
     '<rootDir>/scripts/bench/',
+    '<rootDir>/packages/eslint-plugin-react-hooks/',
   ],
   transform: {
-    '.*': require.resolve('./preprocessor.js'),
+    '^.+babel-plugin-react-compiler/dist/index.js$': [
+      'babel-jest',
+      {
+        configFile: require.resolve('../../babel.config-react-compiler.js'),
+      },
+    ],
+    '^.+\\.ts$': [
+      'babel-jest',
+      {configFile: require.resolve('../../babel.config-ts.js')},
+    ],
+    '.(?!ts$)': require.resolve('./preprocessor.js'),
   },
   setupFiles: [require.resolve('./setupEnvironment.js')],
   setupFilesAfterEnv: [require.resolve('./setupTests.js')],
@@ -20,10 +29,19 @@ module.exports = {
   rootDir: process.cwd(),
   roots: ['<rootDir>/packages', '<rootDir>/scripts'],
   collectCoverageFrom: ['packages/**/*.js'],
-  timers: 'fake',
+  fakeTimers: {
+    enableGlobally: true,
+    legacyFakeTimers: true,
+  },
   snapshotSerializers: [require.resolve('jest-snapshot-serializer-raw')],
 
-  testSequencer: require.resolve('./jestSequencer'),
+  testEnvironment: '<rootDir>/scripts/jest/ReactJSDOMEnvironment',
+  testEnvironmentOptions: {
+    // pre Jest 30 behavior.
+    // Triggered by JSDOM's resource queue that isn't cancelled.
+    // TODO: get that fixed and remove this option.
+    globalsCleanup: 'off',
+  },
 
-  testEnvironment: 'jsdom',
+  testRunner: 'jest-circus/runner',
 };

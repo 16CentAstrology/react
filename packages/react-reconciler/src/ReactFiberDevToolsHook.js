@@ -17,10 +17,8 @@ import type {EventPriority} from './ReactEventPriorities';
 // React which this hook might be in.
 type DevToolsProfilingHooks = any;
 
-import {getLabelForLane, TotalLanes} from 'react-reconciler/src/ReactFiberLane';
 import {DidCapture} from './ReactFiberFlags';
 import {
-  consoleManagedByDevToolsDuringStrictMode,
   enableProfilerTimer,
   enableSchedulingProfiler,
 } from 'shared/ReactFeatureFlags';
@@ -35,13 +33,11 @@ import {
   UserBlockingPriority as UserBlockingSchedulerPriority,
   NormalPriority as NormalSchedulerPriority,
   IdlePriority as IdleSchedulerPriority,
-  unstable_yieldValue,
+  log,
   unstable_setDisableYieldValue,
 } from './Scheduler';
-import {setSuppressWarning} from 'shared/consoleWithStackDev';
-import {disableLogs, reenableLogs} from 'shared/ConsolePatchingDev';
 
-declare var __REACT_DEVTOOLS_GLOBAL_HOOK__: Object | void;
+declare const __REACT_DEVTOOLS_GLOBAL_HOOK__: Object | void;
 
 let rendererID = null;
 let injectedHook = null;
@@ -60,7 +56,7 @@ export function injectInternals(internals: Object): boolean {
   if (hook.isDisabled) {
     // This isn't a real property on the hook, but it can be set to opt out
     // of DevTools integration and associated warnings and logs.
-    // https://github.com/facebook/react/issues/3877
+    // https://github.com/react/react/issues/3877
     return true;
   }
   if (!hook.supportsFiber) {
@@ -68,24 +64,13 @@ export function injectInternals(internals: Object): boolean {
       console.error(
         'The installed version of React DevTools is too old and will not work ' +
           'with the current version of React. Please update React DevTools. ' +
-          'https://reactjs.org/link/react-devtools',
+          'https://react.dev/link/react-devtools',
       );
     }
     // DevTools exists, even though it doesn't support Fiber.
     return true;
   }
   try {
-    if (enableSchedulingProfiler) {
-      // Conditionally inject these hooks only if Timeline profiler is supported by this build.
-      // This gives DevTools a way to feature detect that isn't tied to version number
-      // (since profiling and timeline are controlled by different feature flags).
-      internals = {
-        ...internals,
-        getLaneLabelMap,
-        injectProfilingHooks,
-      };
-    }
-
     rendererID = hook.inject(internals);
 
     // We have successfully injected, so now it is safe to set up hooks.
@@ -93,7 +78,7 @@ export function injectInternals(internals: Object): boolean {
   } catch (err) {
     // Catch all errors because it is unsafe to throw during initialization.
     if (__DEV__) {
-      console.error('React instrumentation encountered an error: %s.', err);
+      console.error('React instrumentation encountered an error: %o.', err);
     }
   }
   if (hook.checkDCE) {
@@ -116,7 +101,7 @@ export function onScheduleRoot(root: FiberRoot, children: ReactNodeList) {
       } catch (err) {
         if (__DEV__ && !hasLoggedError) {
           hasLoggedError = true;
-          console.error('React instrumentation encountered an error: %s', err);
+          console.error('React instrumentation encountered an error: %o', err);
         }
       }
     }
@@ -159,7 +144,7 @@ export function onCommitRoot(root: FiberRoot, eventPriority: EventPriority) {
       if (__DEV__) {
         if (!hasLoggedError) {
           hasLoggedError = true;
-          console.error('React instrumentation encountered an error: %s', err);
+          console.error('React instrumentation encountered an error: %o', err);
         }
       }
     }
@@ -177,7 +162,7 @@ export function onPostCommitRoot(root: FiberRoot) {
       if (__DEV__) {
         if (!hasLoggedError) {
           hasLoggedError = true;
-          console.error('React instrumentation encountered an error: %s', err);
+          console.error('React instrumentation encountered an error: %o', err);
         }
       }
     }
@@ -192,7 +177,7 @@ export function onCommitUnmount(fiber: Fiber) {
       if (__DEV__) {
         if (!hasLoggedError) {
           hasLoggedError = true;
-          console.error('React instrumentation encountered an error: %s', err);
+          console.error('React instrumentation encountered an error: %o', err);
         }
       }
     }
@@ -200,60 +185,33 @@ export function onCommitUnmount(fiber: Fiber) {
 }
 
 export function setIsStrictModeForDevtools(newIsStrictMode: boolean) {
-  if (consoleManagedByDevToolsDuringStrictMode) {
-    if (typeof unstable_yieldValue === 'function') {
-      // We're in a test because Scheduler.unstable_yieldValue only exists
-      // in SchedulerMock. To reduce the noise in strict mode tests,
-      // suppress warnings and disable scheduler yielding during the double render
-      unstable_setDisableYieldValue(newIsStrictMode);
-      setSuppressWarning(newIsStrictMode);
-    }
+  if (typeof log === 'function') {
+    // We're in a test because Scheduler.log only exists
+    // in SchedulerMock. To reduce the noise in strict mode tests,
+    // suppress warnings and disable scheduler yielding during the double render
+    unstable_setDisableYieldValue(newIsStrictMode);
+  }
 
-    if (injectedHook && typeof injectedHook.setStrictMode === 'function') {
-      try {
-        injectedHook.setStrictMode(rendererID, newIsStrictMode);
-      } catch (err) {
-        if (__DEV__) {
-          if (!hasLoggedError) {
-            hasLoggedError = true;
-            console.error(
-              'React instrumentation encountered an error: %s',
-              err,
-            );
-          }
+  if (injectedHook && typeof injectedHook.setStrictMode === 'function') {
+    try {
+      injectedHook.setStrictMode(rendererID, newIsStrictMode);
+    } catch (err) {
+      if (__DEV__) {
+        if (!hasLoggedError) {
+          hasLoggedError = true;
+          console.error('React instrumentation encountered an error: %o', err);
         }
       }
-    }
-  } else {
-    if (newIsStrictMode) {
-      disableLogs();
-    } else {
-      reenableLogs();
     }
   }
 }
 
 // Profiler API hooks
 
-function injectProfilingHooks(profilingHooks: DevToolsProfilingHooks): void {
+export function injectProfilingHooks(
+  profilingHooks: DevToolsProfilingHooks,
+): void {
   injectedProfilingHooks = profilingHooks;
-}
-
-function getLaneLabelMap(): Map<Lane, string> | null {
-  if (enableSchedulingProfiler) {
-    const map: Map<Lane, string> = new Map();
-
-    let lane = 1;
-    for (let index = 0; index < TotalLanes; index++) {
-      const label = ((getLabelForLane(lane): any): string);
-      map.set(lane, label);
-      lane *= 2;
-    }
-
-    return map;
-  } else {
-    return null;
-  }
 }
 
 export function markCommitStarted(lanes: Lanes): void {

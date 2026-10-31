@@ -9,25 +9,18 @@ const {execSync} = require('child_process');
 const {readFileSync} = require('fs');
 const {resolve} = require('path');
 
-const DARK_MODE_DIMMED_WARNING_COLOR = 'rgba(250, 180, 50, 0.5)';
-const DARK_MODE_DIMMED_ERROR_COLOR = 'rgba(250, 123, 130, 0.5)';
-const DARK_MODE_DIMMED_LOG_COLOR = 'rgba(125, 125, 125, 0.5)';
-const LIGHT_MODE_DIMMED_WARNING_COLOR = 'rgba(250, 180, 50, 0.75)';
-const LIGHT_MODE_DIMMED_ERROR_COLOR = 'rgba(250, 123, 130, 0.75)';
-const LIGHT_MODE_DIMMED_LOG_COLOR = 'rgba(125, 125, 125, 0.75)';
+const GITHUB_URL = 'https://github.com/react/react';
+const GIT_COMMIT_HASH_LENGTH = 10;
 
-const GITHUB_URL = 'https://github.com/facebook/react';
+function shortenCommitHash(commitHash) {
+  return commitHash.trim().slice(0, GIT_COMMIT_HASH_LENGTH);
+}
 
 function getGitCommit() {
-  try {
-    return execSync('git show -s --no-show-signature --format=%h')
-      .toString()
-      .trim();
-  } catch (error) {
-    // Mozilla runs this command from a git archive.
-    // In that context, there is no Git revision.
-    return null;
-  }
+  const commitHash = execSync(
+    'git show -s --no-show-signature --format=%H',
+  ).toString();
+  return shortenCommitHash(commitHash);
 }
 
 function getVersionString(packageVersion = null) {
@@ -45,12 +38,6 @@ function getVersionString(packageVersion = null) {
 }
 
 module.exports = {
-  DARK_MODE_DIMMED_WARNING_COLOR,
-  DARK_MODE_DIMMED_ERROR_COLOR,
-  DARK_MODE_DIMMED_LOG_COLOR,
-  LIGHT_MODE_DIMMED_WARNING_COLOR,
-  LIGHT_MODE_DIMMED_ERROR_COLOR,
-  LIGHT_MODE_DIMMED_LOG_COLOR,
   GITHUB_URL,
   getGitCommit,
   getVersionString,
