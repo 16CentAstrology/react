@@ -11,9 +11,7 @@ import type {Fiber} from './ReactFiber';
 
 import ReactSharedInternals from 'shared/ReactSharedInternals';
 
-import {warnsIfNotActing} from './ReactFiberHostConfig';
-
-const {ReactCurrentActQueue} = ReactSharedInternals;
+import {warnsIfNotActing} from './ReactFiberConfig';
 
 export function isLegacyActEnvironment(fiber: Fiber): boolean {
   if (__DEV__) {
@@ -29,9 +27,10 @@ export function isLegacyActEnvironment(fiber: Fiber): boolean {
           IS_REACT_ACT_ENVIRONMENT
         : undefined;
 
-    // $FlowFixMe - Flow doesn't know about jest
+    // $FlowFixMe[cannot-resolve-name] - Flow doesn't know about jest
     const jestIsDefined = typeof jest !== 'undefined';
     return (
+      // $FlowFixMe[constant-condition]
       warnsIfNotActing && jestIsDefined && isReactActEnvironmentGlobal !== false
     );
   }
@@ -47,7 +46,10 @@ export function isConcurrentActEnvironment(): void | boolean {
           IS_REACT_ACT_ENVIRONMENT
         : undefined;
 
-    if (!isReactActEnvironmentGlobal && ReactCurrentActQueue.current !== null) {
+    if (
+      !isReactActEnvironmentGlobal &&
+      ReactSharedInternals.actQueue !== null
+    ) {
       // TODO: Include link to relevant documentation page.
       console.error(
         'The current testing environment is not configured to support ' +

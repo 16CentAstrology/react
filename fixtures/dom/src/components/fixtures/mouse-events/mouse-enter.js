@@ -6,7 +6,7 @@ const ReactDOM = window.ReactDOM;
 const MouseEnter = () => {
   const containerRef = React.useRef();
 
-  React.useEffect(function() {
+  React.useEffect(function () {
     const hostEl = containerRef.current;
     ReactDOM.render(<MouseEnterDetect />, hostEl, () => {
       ReactDOM.render(<MouseEnterDetect />, hostEl.childNodes[1]);
@@ -27,7 +27,7 @@ const MouseEnter = () => {
         <a
           rel="noopener noreferrer"
           target="_blank"
-          href="https://github.com/facebook/react/issues/16763">
+          href="https://github.com/react/react/issues/16763">
           #16763
         </a>{' '}
         should not happen.

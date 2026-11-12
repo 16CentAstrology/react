@@ -12,15 +12,18 @@ const WARNING = 1;
 const ERROR = 2;
 
 module.exports = {
-  extends: ['prettier'],
+  extends: ['prettier', 'plugin:jest/recommended'],
 
   // Stop ESLint from looking for a configuration file in parent folders
   root: true,
+
+  reportUnusedDisableDirectives: true,
 
   plugins: [
     'babel',
     'ft-flow',
     'jest',
+    'es',
     'no-for-of-loops',
     'no-function-declare-after-return',
     'react',
@@ -45,7 +48,7 @@ module.exports = {
     'ft-flow/no-unused-expressions': ERROR,
     // 'ft-flow/no-weak-types': WARNING,
     // 'ft-flow/require-valid-file-annotation': ERROR,
-
+    'es/no-optional-chaining': ERROR,
     'no-cond-assign': OFF,
     'no-constant-condition': OFF,
     'no-control-regex': OFF,
@@ -236,9 +239,16 @@ module.exports = {
     'no-inner-declarations': [ERROR, 'functions'],
     'no-multi-spaces': ERROR,
     'no-restricted-globals': [ERROR].concat(restrictedGlobals),
-    'no-restricted-syntax': [ERROR, 'WithStatement'],
+    'no-restricted-syntax': [
+      ERROR,
+      'WithStatement',
+      {
+        selector: 'MemberExpression[property.name=/^(?:substring|substr)$/]',
+        message: 'Prefer string.slice() over .substring() and .substr().',
+      },
+    ],
     'no-shadow': ERROR,
-    'no-unused-vars': [ERROR, {args: 'none'}],
+    'no-unused-vars': [ERROR, {args: 'none', ignoreRestSiblings: true}],
     'no-use-before-define': OFF,
     'no-useless-concat': OFF,
     quotes: [ERROR, 'single', {avoidEscape: true, allowTemplateLiterals: true}],
@@ -293,7 +303,6 @@ module.exports = {
       ERROR,
       {isProductionUserAppCode: true},
     ],
-    'react-internal/no-to-warn-dev-within-to-throw': ERROR,
     'react-internal/warning-args': ERROR,
     'react-internal/no-production-logging': ERROR,
   },
@@ -317,14 +326,21 @@ module.exports = {
         'packages/react-devtools-shared/**/*.js',
         'packages/react-noop-renderer/**/*.js',
         'packages/react-refresh/**/*.js',
+        'packages/react-server-dom-esm/**/*.js',
         'packages/react-server-dom-webpack/**/*.js',
+        'packages/react-server-dom-turbopack/**/*.js',
+        'packages/react-server-dom-parcel/**/*.js',
+        'packages/react-server-dom-fb/**/*.js',
+        'packages/react-flight-server-fb/**/*.js',
+        'packages/react-server-dom-unbundled/**/*.js',
         'packages/react-test-renderer/**/*.js',
         'packages/react-debug-tools/**/*.js',
         'packages/react-devtools-extensions/**/*.js',
-        'packages/react-devtools-timeline/**/*.js',
-        'packages/react-native-renderer/**/*.js',
+        'packages/react-devtools-facade/**/*.js',
+          'packages/react-native-renderer/**/*.js',
         'packages/eslint-plugin-react-hooks/**/*.js',
         'packages/jest-react/**/*.js',
+        'packages/internal-test-utils/**/*.js',
         'packages/**/__tests__/*.js',
         'packages/**/npm/*.js',
       ],
@@ -365,9 +381,49 @@ module.exports = {
       files: ['**/__tests__/*.js'],
       rules: {
         // https://github.com/jest-community/eslint-plugin-jest
-        'jest/no-focused-tests': ERROR,
-        'jest/valid-expect': ERROR,
-        'jest/valid-expect-in-promise': ERROR,
+        // Meh, who cares.
+        'jest/consistent-test-it': OFF,
+        // Meh, we have a lot of these, who cares.
+        'jest/no-alias-methods': OFF,
+        // We do conditions based on feature flags.
+        'jest/no-conditional-expect': OFF,
+        // We have our own assertion helpers.
+        'jest/expect-expect': OFF,
+        // Lame rule that fires in itRender helpers or in render methods.
+        'jest/no-standalone-expect': OFF,
+      },
+    },
+    {
+      // Rules specific to test setup helper files.
+      files: [
+        '**/setupTests.js',
+        '**/setupEnv.js',
+        '**/jest/TestFlags.js',
+        '**/dom-event-testing-library/testHelpers.js',
+        '**/utils/ReactDOMServerIntegrationTestUtils.js',
+        '**/babel/transform-react-version-pragma.js',
+        '**/babel/transform-test-gate-pragma.js',
+      ],
+      rules: {
+        // Some helpers intentionally focus tests.
+        'jest/no-focused-tests': OFF,
+        // Test fn helpers don't use static text names.
+        'jest/valid-title': OFF,
+        // We have our own assertion helpers.
+        'jest/expect-expect': OFF,
+        // Some helpers intentionally disable tests.
+        'jest/no-disabled-tests': OFF,
+        // Helpers export text function helpers.
+        'jest/no-export': OFF,
+        // The examples in comments trigger false errors.
+        'jest/no-commented-out-tests': OFF,
+      },
+    },
+    {
+      files: ['**/jest/TestFlags.js'],
+      rules: {
+        // The examples in comments trigger false errors.
+        'jest/no-commented-out-tests': OFF,
       },
     },
     {
@@ -377,11 +433,11 @@ module.exports = {
         'packages/*/npm/**/*.js',
         'packages/dom-event-testing-library/**/*.js',
         'packages/react-devtools*/**/*.js',
-        'dangerfile.js',
         'fixtures',
         'packages/react-dom/src/test-utils/*.js',
       ],
       rules: {
+        'es/no-optional-chaining': OFF,
         'react-internal/no-production-logging': OFF,
         'react-internal/warning-args': OFF,
         'react-internal/safe-string-coercion': [
@@ -391,10 +447,7 @@ module.exports = {
       },
     },
     {
-      files: [
-        'scripts/eslint-rules/*.js',
-        'packages/eslint-plugin-react-hooks/src/*.js',
-      ],
+      files: ['scripts/eslint-rules/*.js'],
       plugins: ['eslint-plugin'],
       rules: {
         'eslint-plugin/prefer-object-rule': ERROR,
@@ -406,25 +459,83 @@ module.exports = {
       },
     },
     {
-      files: [
-        'packages/react-native-renderer/**/*.js',
-        'packages/react-server-native-relay/**/*.js',
-      ],
-      globals: {
-        nativeFabricUIManager: 'readonly',
-      },
-    },
-    {
       files: ['packages/react-server-dom-webpack/**/*.js'],
       globals: {
         __webpack_chunk_load__: 'readonly',
+        __webpack_get_script_filename__: 'readonly',
         __webpack_require__: 'readonly',
+      },
+    },
+    {
+      files: ['packages/react-server-dom-turbopack/**/*.js'],
+      globals: {
+        __turbopack_load_by_url__: 'readonly',
+        __turbopack_require__: 'readonly',
+      },
+    },
+    {
+      files: ['packages/react-server-dom-parcel/**/*.js'],
+      globals: {
+        parcelRequire: 'readonly',
       },
     },
     {
       files: ['packages/scheduler/**/*.js'],
       globals: {
         TaskController: 'readonly',
+      },
+    },
+    {
+      files: [
+        'packages/react-devtools-extensions/**/*.js',
+        'packages/react-devtools-shared/src/devtools/views/**/*.js',
+        'packages/react-devtools-shared/src/hook.js',
+        'packages/react-devtools-shared/src/backend/console.js',
+        'packages/react-devtools-shared/src/backend/fiber/renderer.js',
+        'packages/react-devtools-shared/src/backend/shared/DevToolsComponentStackFrame.js',
+        'packages/react-devtools-shared/src/frontend/utils/withPermissionsCheck.js',
+      ],
+      globals: {
+        __IS_CHROME__: 'readonly',
+        __IS_FIREFOX__: 'readonly',
+        __IS_EDGE__: 'readonly',
+        __IS_NATIVE__: 'readonly',
+        __IS_INTERNAL_VERSION__: 'readonly',
+        chrome: 'readonly',
+      },
+    },
+    {
+      files: ['packages/react-devtools-shared/**/*.js'],
+      globals: {
+        __IS_INTERNAL_VERSION__: 'readonly',
+      },
+    },
+    {
+      files: ['packages/react-devtools-*/**/*.js'],
+      excludedFiles: '**/__tests__/**/*.js',
+      plugins: ['eslint-plugin-react-hooks-published'],
+      rules: {
+        'react-hooks-published/rules-of-hooks': ERROR,
+      },
+    },
+    {
+      files: ['packages/eslint-plugin-react-hooks/src/**/*'],
+      extends: ['plugin:@typescript-eslint/recommended'],
+      parser: '@typescript-eslint/parser',
+      plugins: ['@typescript-eslint', 'eslint-plugin'],
+      rules: {
+        '@typescript-eslint/no-explicit-any': OFF,
+        '@typescript-eslint/no-non-null-assertion': OFF,
+        '@typescript-eslint/array-type': [ERROR, {default: 'generic'}],
+
+        'es/no-optional-chaining': OFF,
+
+        'eslint-plugin/prefer-object-rule': ERROR,
+        'eslint-plugin/require-meta-fixable': [
+          ERROR,
+          {catchNoFixerButFixableProperty: true},
+        ],
+        'eslint-plugin/require-meta-has-suggestions': ERROR,
       },
     },
   ],
@@ -434,36 +545,57 @@ module.exports = {
     es6: true,
     node: true,
     jest: true,
-    jasmine: true,
   },
 
   globals: {
-    $Call: 'readonly',
-    $ElementType: 'readonly',
     $Flow$ModuleRef: 'readonly',
     $FlowFixMe: 'readonly',
     $Keys: 'readonly',
     $NonMaybeType: 'readonly',
-    $PropertyType: 'readonly',
     $ReadOnly: 'readonly',
     $ReadOnlyArray: 'readonly',
+    $ArrayBufferView: 'readonly',
     $Shape: 'readonly',
+    CallSite: 'readonly',
+    ConsoleTask: 'readonly', // TOOD: Figure out what the official name of this will be.
+    Readonly: 'readonly',
+    ReturnType: 'readonly',
+    AggregateError: 'readonly',
     AnimationFrameID: 'readonly',
+    WeakRef: 'readonly',
+    // For Flow type annotation. Only `BigInt` is valid at runtime.
+    bigint: 'readonly',
+    BigInt: 'readonly',
+    BigInt64Array: 'readonly',
+    BigUint64Array: 'readonly',
+    CacheType: 'readonly',
     Class: 'readonly',
     ClientRect: 'readonly',
     CopyInspectedElementPath: 'readonly',
     DOMHighResTimeStamp: 'readonly',
     EventListener: 'readonly',
+    // Flow type
+    FormDataEntryValue: 'readonly',
     Iterable: 'readonly',
+    AsyncIterable: 'readonly',
+    $AsyncIterable: 'readonly',
+    $AsyncIterator: 'readonly',
     Iterator: 'readonly',
+    AsyncIterator: 'readonly',
+    IntervalID: 'readonly',
+    IteratorResult: 'readonly',
     JSONValue: 'readonly',
     JSResourceReference: 'readonly',
+    mixin$Animatable: 'readonly',
     MouseEventHandler: 'readonly',
+    NavigateEvent: 'readonly',
+    Partial: 'readonly',
+    PerformanceMeasureOptions: 'readonly',
     PropagationPhases: 'readonly',
     PropertyDescriptor: 'readonly',
-    React$AbstractComponent: 'readonly',
+    PropertyDescriptorMap: 'readonly',
+    Proxy$traps: 'readonly',
     React$Component: 'readonly',
-    React$ComponentType: 'readonly',
     React$Config: 'readonly',
     React$Context: 'readonly',
     React$Element: 'readonly',
@@ -475,19 +607,36 @@ module.exports = {
     React$Node: 'readonly',
     React$Portal: 'readonly',
     React$Ref: 'readonly',
-    React$StatelessFunctionalComponent: 'readonly',
+    React$RefSetter: 'readonly',
+    ReadableByteStreamController: 'readonly',
     ReadableStreamController: 'readonly',
+    ReadableStreamReader: 'readonly',
     RequestInfo: 'readonly',
     RequestOptions: 'readonly',
-    ResponseState: 'readonly',
+    Required: 'readonly',
+    SharedArrayBuffer: 'readonly',
     StoreAsGlobal: 'readonly',
     symbol: 'readonly',
     SyntheticEvent: 'readonly',
     SyntheticMouseEvent: 'readonly',
+    SyntheticPointerEvent: 'readonly',
     Thenable: 'readonly',
     TimeoutID: 'readonly',
     WheelEventHandler: 'readonly',
+    FinalizationRegistry: 'readonly',
+    Exclude: 'readonly',
+    Omit: 'readonly',
+    Pick: 'readonly',
+    Keyframe: 'readonly',
+    PropertyIndexedKeyframes: 'readonly',
+    KeyframeAnimationOptions: 'readonly',
+    GetAnimationsOptions: 'readonly',
+    ScrollTimeline: 'readonly',
+    EventListenerOptionsOrUseCapture: 'readonly',
+    FocusOptions: 'readonly',
+    OptionalEffectTiming: 'readonly',
 
+    __REACT_ROOT_PATH_TEST__: 'readonly',
     spyOnDev: 'readonly',
     spyOnDevAndProd: 'readonly',
     spyOnProd: 'readonly',
@@ -496,12 +645,14 @@ module.exports = {
     __EXTENSION__: 'readonly',
     __PROFILE__: 'readonly',
     __TEST__: 'readonly',
-    __UMD__: 'readonly',
     __VARIANT__: 'readonly',
+    __unmockReact: 'readonly',
     gate: 'readonly',
     trustedTypes: 'readonly',
     IS_REACT_ACT_ENVIRONMENT: 'readonly',
     AsyncLocalStorage: 'readonly',
+    async_hooks: 'readonly',
     globalThis: 'readonly',
+    navigation: 'readonly',
   },
 };

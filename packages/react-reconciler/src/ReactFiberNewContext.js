@@ -7,7 +7,7 @@
  * @flow
  */
 
-import type {ReactContext, ReactProviderType} from 'shared/ReactTypes';
+import type {ReactContext} from 'shared/ReactTypes';
 import type {
   Fiber,
   ContextDependency,
@@ -15,23 +15,17 @@ import type {
 } from './ReactInternalTypes';
 import type {StackCursor} from './ReactFiberStack';
 import type {Lanes} from './ReactFiberLane';
-import type {SharedQueue} from './ReactFiberClassUpdateQueue';
+import type {TransitionStatus} from './ReactFiberConfig';
+import type {Hook} from './ReactFiberHooks';
 
-import {isPrimaryRenderer} from './ReactFiberHostConfig';
+import {isPrimaryRenderer, HostTransitionContext} from './ReactFiberConfig';
 import {createCursor, push, pop} from './ReactFiberStack';
 import {
   ContextProvider,
-  ClassComponent,
   DehydratedFragment,
+  SuspenseComponent,
 } from './ReactWorkTags';
-import {
-  NoLanes,
-  NoTimestamp,
-  isSubsetOfLanes,
-  includesSomeLane,
-  mergeLanes,
-  pickArbitraryLane,
-} from './ReactFiberLane';
+import {NoLanes, isSubsetOfLanes, mergeLanes} from './ReactFiberLane';
 import {
   NoFlags,
   DidPropagateContext,
@@ -39,15 +33,18 @@ import {
 } from './ReactFiberFlags';
 
 import is from 'shared/objectIs';
-import {createUpdate, ForceUpdate} from './ReactFiberClassUpdateQueue';
-import {markWorkInProgressReceivedUpdate} from './ReactFiberBeginWork';
-import {
-  enableLazyContextPropagation,
-  enableServerContext,
-} from 'shared/ReactFeatureFlags';
-import {REACT_SERVER_CONTEXT_DEFAULT_VALUE_NOT_LOADED} from 'shared/ReactSymbols';
+import {getHostTransitionProvider} from './ReactFiberHostContext';
 
 const valueCursor: StackCursor<mixed> = createCursor(null);
+
+let rendererCursorDEV: StackCursor<Object | null>;
+if (__DEV__) {
+  rendererCursorDEV = createCursor(null);
+}
+let renderer2CursorDEV: StackCursor<Object | null>;
+if (__DEV__) {
+  renderer2CursorDEV = createCursor(null);
+}
 
 let rendererSigil;
 if (__DEV__) {
@@ -57,7 +54,6 @@ if (__DEV__) {
 
 let currentlyRenderingFiber: Fiber | null = null;
 let lastContextDependency: ContextDependency<mixed> | null = null;
-let lastFullyObservedContext: ReactContext<any> | null = null;
 
 let isDisallowedContextReadInDEV: boolean = false;
 
@@ -66,7 +62,6 @@ export function resetContextDependencies(): void {
   // cannot be called outside the render phase.
   currentlyRenderingFiber = null;
   lastContextDependency = null;
-  lastFullyObservedContext = null;
   if (__DEV__) {
     isDisallowedContextReadInDEV = false;
   }
@@ -89,11 +84,14 @@ export function pushProvider<T>(
   context: ReactContext<T>,
   nextValue: T,
 ): void {
+  // $FlowFixMe[constant-condition]
   if (isPrimaryRenderer) {
     push(valueCursor, context._currentValue, providerFiber);
 
     context._currentValue = nextValue;
     if (__DEV__) {
+      push(rendererCursorDEV, context._currentRenderer, providerFiber);
+
       if (
         context._currentRenderer !== undefined &&
         context._currentRenderer !== null &&
@@ -111,6 +109,8 @@ export function pushProvider<T>(
 
     context._currentValue2 = nextValue;
     if (__DEV__) {
+      push(renderer2CursorDEV, context._currentRenderer2, providerFiber);
+
       if (
         context._currentRenderer2 !== undefined &&
         context._currentRenderer2 !== null &&
@@ -131,26 +131,25 @@ export function popProvider(
   providerFiber: Fiber,
 ): void {
   const currentValue = valueCursor.current;
-  pop(valueCursor, providerFiber);
+
+  // $FlowFixMe[constant-condition]
   if (isPrimaryRenderer) {
-    if (
-      enableServerContext &&
-      currentValue === REACT_SERVER_CONTEXT_DEFAULT_VALUE_NOT_LOADED
-    ) {
-      context._currentValue = context._defaultValue;
-    } else {
-      context._currentValue = currentValue;
+    context._currentValue = currentValue;
+    if (__DEV__) {
+      const currentRenderer = rendererCursorDEV.current;
+      pop(rendererCursorDEV, providerFiber);
+      context._currentRenderer = currentRenderer;
     }
   } else {
-    if (
-      enableServerContext &&
-      currentValue === REACT_SERVER_CONTEXT_DEFAULT_VALUE_NOT_LOADED
-    ) {
-      context._currentValue2 = context._defaultValue;
-    } else {
-      context._currentValue2 = currentValue;
+    context._currentValue2 = currentValue;
+    if (__DEV__) {
+      const currentRenderer2 = renderer2CursorDEV.current;
+      pop(renderer2CursorDEV, providerFiber);
+      context._currentRenderer2 = currentRenderer2;
     }
   }
+
+  pop(valueCursor, providerFiber);
 }
 
 export function scheduleContextWorkOnParentPath(
@@ -200,157 +199,16 @@ export function propagateContextChange<T>(
   context: ReactContext<T>,
   renderLanes: Lanes,
 ): void {
-  if (enableLazyContextPropagation) {
-    // TODO: This path is only used by Cache components. Update
-    // lazilyPropagateParentContextChanges to look for Cache components so they
-    // can take advantage of lazy propagation.
-    const forcePropagateEntireTree = true;
-    propagateContextChanges(
-      workInProgress,
-      [context],
-      renderLanes,
-      forcePropagateEntireTree,
-    );
-  } else {
-    propagateContextChange_eager(workInProgress, context, renderLanes);
-  }
-}
-
-function propagateContextChange_eager<T>(
-  workInProgress: Fiber,
-  context: ReactContext<T>,
-  renderLanes: Lanes,
-): void {
-  // Only used by eager implementation
-  if (enableLazyContextPropagation) {
-    return;
-  }
-  let fiber = workInProgress.child;
-  if (fiber !== null) {
-    // Set the return pointer of the child to the work-in-progress fiber.
-    fiber.return = workInProgress;
-  }
-  while (fiber !== null) {
-    let nextFiber;
-
-    // Visit this fiber.
-    const list = fiber.dependencies;
-    if (list !== null) {
-      nextFiber = fiber.child;
-
-      let dependency = list.firstContext;
-      while (dependency !== null) {
-        // Check if the context matches.
-        if (dependency.context === context) {
-          // Match! Schedule an update on this fiber.
-          if (fiber.tag === ClassComponent) {
-            // Schedule a force update on the work-in-progress.
-            const lane = pickArbitraryLane(renderLanes);
-            const update = createUpdate(NoTimestamp, lane);
-            update.tag = ForceUpdate;
-            // TODO: Because we don't have a work-in-progress, this will add the
-            // update to the current fiber, too, which means it will persist even if
-            // this render is thrown away. Since it's a race condition, not sure it's
-            // worth fixing.
-
-            // Inlined `enqueueUpdate` to remove interleaved update check
-            const updateQueue = fiber.updateQueue;
-            if (updateQueue === null) {
-              // Only occurs if the fiber has been unmounted.
-            } else {
-              const sharedQueue: SharedQueue<any> = (updateQueue: any).shared;
-              const pending = sharedQueue.pending;
-              if (pending === null) {
-                // This is the first update. Create a circular list.
-                update.next = update;
-              } else {
-                update.next = pending.next;
-                pending.next = update;
-              }
-              sharedQueue.pending = update;
-            }
-          }
-
-          fiber.lanes = mergeLanes(fiber.lanes, renderLanes);
-          const alternate = fiber.alternate;
-          if (alternate !== null) {
-            alternate.lanes = mergeLanes(alternate.lanes, renderLanes);
-          }
-          scheduleContextWorkOnParentPath(
-            fiber.return,
-            renderLanes,
-            workInProgress,
-          );
-
-          // Mark the updated lanes on the list, too.
-          list.lanes = mergeLanes(list.lanes, renderLanes);
-
-          // Since we already found a match, we can stop traversing the
-          // dependency list.
-          break;
-        }
-        dependency = dependency.next;
-      }
-    } else if (fiber.tag === ContextProvider) {
-      // Don't scan deeper if this is a matching provider
-      nextFiber = fiber.type === workInProgress.type ? null : fiber.child;
-    } else if (fiber.tag === DehydratedFragment) {
-      // If a dehydrated suspense boundary is in this subtree, we don't know
-      // if it will have any context consumers in it. The best we can do is
-      // mark it as having updates.
-      const parentSuspense = fiber.return;
-
-      if (parentSuspense === null) {
-        throw new Error(
-          'We just came from a parent so we must have had a parent. This is a bug in React.',
-        );
-      }
-
-      parentSuspense.lanes = mergeLanes(parentSuspense.lanes, renderLanes);
-      const alternate = parentSuspense.alternate;
-      if (alternate !== null) {
-        alternate.lanes = mergeLanes(alternate.lanes, renderLanes);
-      }
-      // This is intentionally passing this fiber as the parent
-      // because we want to schedule this fiber as having work
-      // on its children. We'll use the childLanes on
-      // this fiber to indicate that a context has changed.
-      scheduleContextWorkOnParentPath(
-        parentSuspense,
-        renderLanes,
-        workInProgress,
-      );
-      nextFiber = fiber.sibling;
-    } else {
-      // Traverse down.
-      nextFiber = fiber.child;
-    }
-
-    if (nextFiber !== null) {
-      // Set the return pointer of the child to the work-in-progress fiber.
-      nextFiber.return = fiber;
-    } else {
-      // No child. Traverse to next sibling.
-      nextFiber = fiber;
-      while (nextFiber !== null) {
-        if (nextFiber === workInProgress) {
-          // We're back to the root of this subtree. Exit.
-          nextFiber = null;
-          break;
-        }
-        const sibling = nextFiber.sibling;
-        if (sibling !== null) {
-          // Set the return pointer of the sibling to the work-in-progress fiber.
-          sibling.return = nextFiber.return;
-          nextFiber = sibling;
-          break;
-        }
-        // No more siblings. Traverse up.
-        nextFiber = nextFiber.return;
-      }
-    }
-    fiber = nextFiber;
-  }
+  // TODO: This path is only used by Cache components. Update
+  // lazilyPropagateParentContextChanges to look for Cache components so they
+  // can take advantage of lazy propagation.
+  const forcePropagateEntireTree = true;
+  propagateContextChanges(
+    workInProgress,
+    [context],
+    renderLanes,
+    forcePropagateEntireTree,
+  );
 }
 
 function propagateContextChanges<T>(
@@ -359,10 +217,6 @@ function propagateContextChanges<T>(
   renderLanes: Lanes,
   forcePropagateEntireTree: boolean,
 ): void {
-  // Only used by lazy implementation
-  if (!enableLazyContextPropagation) {
-    return;
-  }
   let fiber = workInProgress.child;
   if (fiber !== null) {
     // Set the return pointer of the child to the work-in-progress fiber.
@@ -384,7 +238,7 @@ function propagateContextChanges<T>(
         findContext: for (let i = 0; i < contexts.length; i++) {
           const context: ReactContext<T> = contexts[i];
           // Check if the context matches.
-          // TODO: Compare selected values to bail out early.
+          // $FlowFixMe[invalid-compare]
           if (dependency.context === context) {
             // Match! Schedule an update on this fiber.
 
@@ -448,6 +302,48 @@ function propagateContextChanges<T>(
         workInProgress,
       );
       nextFiber = null;
+    } else if (
+      fiber.tag === SuspenseComponent &&
+      fiber.memoizedState !== null &&
+      fiber.memoizedState.dehydrated === null
+    ) {
+      // This is a client-rendered Suspense boundary that is currently
+      // showing its fallback. The primary children may include context
+      // consumers, but their fibers may not exist in the tree — during
+      // initial mount, if the primary children suspended, their fibers
+      // were discarded since there was no current tree to preserve them.
+      // We can't walk into the primary tree to find consumers, so
+      // conservatively mark the Suspense boundary itself for retry.
+      // When it re-renders, it will re-mount the primary children,
+      // which will read the updated context value.
+      fiber.lanes = mergeLanes(fiber.lanes, renderLanes);
+      const alternate = fiber.alternate;
+      if (alternate !== null) {
+        alternate.lanes = mergeLanes(alternate.lanes, renderLanes);
+      }
+      scheduleContextWorkOnParentPath(
+        fiber.return,
+        renderLanes,
+        workInProgress,
+      );
+      // The primary children's fibers may not exist in the tree (they
+      // were discarded on initial mount if they suspended). However, the
+      // fallback children ARE in the committed tree and visible to the
+      // user. We need to continue propagating into the fallback subtree
+      // so that its context consumers are marked for re-render.
+      //
+      // The fiber structure is:
+      //   SuspenseComponent
+      //     → child: OffscreenComponent (primary, hidden)
+      //       → sibling: FallbackFragment
+      //
+      // Skip the primary (hidden) subtree and jump to the fallback.
+      const primaryChildFragment = fiber.child;
+      if (primaryChildFragment !== null) {
+        nextFiber = primaryChildFragment.sibling;
+      } else {
+        nextFiber = null;
+      }
     } else {
       // Traverse down.
       nextFiber = fiber.child;
@@ -484,9 +380,9 @@ export function lazilyPropagateParentContextChanges(
   current: Fiber,
   workInProgress: Fiber,
   renderLanes: Lanes,
-) {
+): boolean {
   const forcePropagateEntireTree = false;
-  propagateParentContextChanges(
+  return propagateParentContextChanges(
     current,
     workInProgress,
     renderLanes,
@@ -517,11 +413,7 @@ function propagateParentContextChanges(
   workInProgress: Fiber,
   renderLanes: Lanes,
   forcePropagateEntireTree: boolean,
-) {
-  if (!enableLazyContextPropagation) {
-    return;
-  }
-
+): boolean {
   // Collect all the parent providers that changed. Since this is usually small
   // number, we use an Array instead of Set.
   let contexts = null;
@@ -545,9 +437,7 @@ function propagateParentContextChanges(
 
       const oldProps = currentParent.memoizedProps;
       if (oldProps !== null) {
-        const providerType: ReactProviderType<any> = parent.type;
-        const context: ReactContext<any> = providerType._context;
-
+        const context: ReactContext<any> = parent.type;
         const newProps = parent.pendingProps;
         const newValue = newProps.value;
 
@@ -559,6 +449,29 @@ function propagateParentContextChanges(
           } else {
             contexts = [context];
           }
+        }
+      }
+    } else if (parent === getHostTransitionProvider()) {
+      // During a host transition, a host component can act like a context
+      // provider. E.g. in React DOM, this would be a <form />.
+      const currentParent = parent.alternate;
+      if (currentParent === null) {
+        throw new Error('Should have a current fiber. This is a bug in React.');
+      }
+
+      const oldStateHook: Hook = currentParent.memoizedState;
+      const oldState: TransitionStatus = oldStateHook.memoizedState;
+
+      const newStateHook: Hook = parent.memoizedState;
+      const newState: TransitionStatus = newStateHook.memoizedState;
+
+      // This uses regular equality instead of Object.is because we assume that
+      // host transition state doesn't include NaN as a valid type.
+      if (oldState !== newState) {
+        if (contexts !== null) {
+          contexts.push(HostTransitionContext);
+        } else {
+          contexts = [HostTransitionContext];
         }
       }
     }
@@ -596,14 +509,12 @@ function propagateParentContextChanges(
   // then we could remove both `DidPropagateContext` and `NeedsPropagation`.
   // Consider this as part of the next refactor to the fiber tree structure.
   workInProgress.flags |= DidPropagateContext;
+  return contexts !== null;
 }
 
 export function checkIfContextChanged(
   currentDependencies: Dependencies,
 ): boolean {
-  if (!enableLazyContextPropagation) {
-    return false;
-  }
   // Iterate over the current dependencies to see if something changed. This
   // only gets called if props and state has already bailed out, so it's a
   // relatively uncommon path, except at the root of a changed subtree.
@@ -612,6 +523,7 @@ export function checkIfContextChanged(
   let dependency = currentDependencies.firstContext;
   while (dependency !== null) {
     const context = dependency.context;
+    // $FlowFixMe[constant-condition]
     const newValue = isPrimaryRenderer
       ? context._currentValue
       : context._currentValue2;
@@ -630,24 +542,11 @@ export function prepareToReadContext(
 ): void {
   currentlyRenderingFiber = workInProgress;
   lastContextDependency = null;
-  lastFullyObservedContext = null;
 
   const dependencies = workInProgress.dependencies;
   if (dependencies !== null) {
-    if (enableLazyContextPropagation) {
-      // Reset the work-in-progress list
-      dependencies.firstContext = null;
-    } else {
-      const firstContext = dependencies.firstContext;
-      if (firstContext !== null) {
-        if (includesSomeLane(dependencies.lanes, renderLanes)) {
-          // Context list has a pending update. Mark that this fiber performed work.
-          markWorkInProgressReceivedUpdate();
-        }
-        // Reset the work-in-progress list
-        dependencies.firstContext = null;
-      }
-    }
+    // Reset the work-in-progress list
+    dependencies.firstContext = null;
   }
 }
 
@@ -664,43 +563,65 @@ export function readContext<T>(context: ReactContext<T>): T {
       );
     }
   }
+  return readContextForConsumer(currentlyRenderingFiber, context);
+}
 
+export function readContextDuringReconciliation<T>(
+  consumer: Fiber,
+  context: ReactContext<T>,
+  renderLanes: Lanes,
+): T {
+  if (currentlyRenderingFiber === null) {
+    prepareToReadContext(consumer, renderLanes);
+  }
+  return readContextForConsumer(consumer, context);
+}
+
+function readContextForConsumer<T>(
+  consumer: Fiber | null,
+  context: ReactContext<T>,
+): T {
+  // $FlowFixMe[constant-condition]
   const value = isPrimaryRenderer
     ? context._currentValue
     : context._currentValue2;
 
-  if (lastFullyObservedContext === context) {
-    // Nothing to do. We already observe everything in this context.
-  } else {
-    const contextItem = {
-      context: ((context: any): ReactContext<mixed>),
-      memoizedValue: value,
-      next: null,
-    };
+  const contextItem = {
+    context: context as any as ReactContext<mixed>,
+    memoizedValue: value,
+    next: null,
+  };
 
-    if (lastContextDependency === null) {
-      if (currentlyRenderingFiber === null) {
-        throw new Error(
-          'Context can only be read while React is rendering. ' +
-            'In classes, you can read it in the render method or getDerivedStateFromProps. ' +
-            'In function components, you can read it directly in the function body, but not ' +
-            'inside Hooks like useReducer() or useMemo().',
-        );
-      }
-
-      // This is the first dependency for this component. Create a new list.
-      lastContextDependency = contextItem;
-      currentlyRenderingFiber.dependencies = {
-        lanes: NoLanes,
-        firstContext: contextItem,
-      };
-      if (enableLazyContextPropagation) {
-        currentlyRenderingFiber.flags |= NeedsPropagation;
-      }
-    } else {
-      // Append a new context item.
-      lastContextDependency = lastContextDependency.next = contextItem;
+  if (lastContextDependency === null) {
+    if (consumer === null) {
+      throw new Error(
+        'Context can only be read while React is rendering. ' +
+          'In classes, you can read it in the render method or getDerivedStateFromProps. ' +
+          'In function components, you can read it directly in the function body, but not ' +
+          'inside Hooks like useReducer() or useMemo().',
+      );
     }
+
+    // This is the first dependency for this component. Create a new list.
+    // $FlowFixMe[incompatible-type]
+    lastContextDependency = contextItem;
+    consumer.dependencies = __DEV__
+      ? // $FlowFixMe[incompatible-type]
+        {
+          lanes: NoLanes,
+          firstContext: contextItem,
+          _debugThenableState: null,
+        }
+      : // $FlowFixMe[incompatible-type]
+        {
+          lanes: NoLanes,
+          firstContext: contextItem,
+        };
+    consumer.flags |= NeedsPropagation;
+  } else {
+    // Append a new context item.
+    // $FlowFixMe[incompatible-type]
+    lastContextDependency = lastContextDependency.next = contextItem;
   }
   return value;
 }

@@ -51,7 +51,7 @@ This sample app uses client-side routing and consists of two routes:
 **The purpose of this demo is to show some nuances of such setup:**
 
 - How to install two versions of React in a single app with npm side by side.
-- How to avoid the ["invalid Hook call" error](https://github.com/facebook/react/issues/13991) while nesting React trees.
+- How to avoid the ["invalid Hook call" error](https://github.com/react/react/issues/13991) while nesting React trees.
 - How to pass context between different versions of React.
 - How to lazy-load the second React bundle so it's only loaded on the screens that use it.
 - How to do all of this without a special bundler configuration.
@@ -68,7 +68,7 @@ We will use three different `package.json`s: one for non-React code at the root,
 - **`src/legacy/package.json`**: This is where we declare the `react` and `react-dom`  dependencies for the "legacy" trees. In this demo, we're using React 16.8 (although, as noted above, we could downgrade it further below). This is **also** where we specify any third-party libraries that use React. For example, we include `react-router` and `react-redux` in this example. 
 - **`src/modern/package.json`**: This is where we declare the `react` and `react-dom`  dependencies for the "modern" trees. In this demo, we're using React 17. Here, we also specify third-party dependencies that use React and are used from the modern part of our app. This is why we *also* have `react-router` and `react-redux` in this file. (Their versions don't strictly have to match their `legacy` counterparts, but features that rely on context may require workarounds if they differ.)
 
-The `scripts` in the root `package.json` are set up so that when you run `npm install` in it, it also runs `npm intall` in both `src/legacy` and `src/modern` folders.
+The `scripts` in the root `package.json` are set up so that when you run `npm install` in it, it also runs `npm install` in both `src/legacy` and `src/modern` folders.
 
 **Note:** This demo is set up to use a few third-party dependencies (React Router and Redux). These are not essential, and you can remove them from the demo. They are included so we can show how to make them work with this approach.
 

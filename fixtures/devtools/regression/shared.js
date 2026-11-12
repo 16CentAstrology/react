@@ -1,4 +1,4 @@
-/* eslint-disable no-fallthrough, react/react-in-jsx-scope, react/jsx-no-undef */
+/* eslint-disable react/react-in-jsx-scope, react/jsx-no-undef */
 /* global React ReactCache ReactDOM SchedulerTracing ScheduleTracing  */
 
 const apps = [];
@@ -32,7 +32,7 @@ if (typeof SchedulerTracing !== 'undefined') {
   trace = (_, __, callback) => callback();
 }
 
-// https://github.com/facebook/react/blob/main/CHANGELOG.md
+// https://github.com/react/react/blob/main/CHANGELOG.md
 switch (major) {
   case 16:
     switch (minor) {
@@ -304,7 +304,7 @@ function TopLevelWrapperForDevTools({version}) {
     header = (
       <h1>
         React canary{' '}
-        <a href={`https://github.com/facebook/react/commit/${commitSha}`}>
+        <a href={`https://github.com/react/react/commit/${commitSha}`}>
           {commitSha}
         </a>
       </h1>

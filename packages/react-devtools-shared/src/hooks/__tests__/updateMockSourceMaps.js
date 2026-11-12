@@ -1,5 +1,4 @@
 const {transformSync} = require('@babel/core');
-const {btoa} = require('base64');
 const {
   lstatSync,
   mkdirSync,
@@ -10,11 +9,11 @@ const {
 const {emptyDirSync} = require('fs-extra');
 const {resolve} = require('path');
 const rollup = require('rollup');
-const babel = require('rollup-plugin-babel');
-const commonjs = require('rollup-plugin-commonjs');
+const babel = require('@rollup/plugin-babel').babel;
+const commonjs = require('@rollup/plugin-commonjs');
 const jsx = require('acorn-jsx');
-const rollupResolve = require('rollup-plugin-node-resolve');
-const {encode, decode} = require('sourcemap-codec');
+const rollupResolve = require('@rollup/plugin-node-resolve').nodeResolve;
+const {encode, decode} = require('@jridgewell/sourcemap-codec');
 const {generateEncodedHookMap} = require('../generateHookMap');
 const {parse} = require('@babel/parser');
 
@@ -323,7 +322,11 @@ async function bundle() {
     plugins: [
       rollupResolve(),
       commonjs(),
-      babel({presets: ['@babel/preset-react'], sourceMap: true}),
+      babel({
+        babelHelpers: 'bundled',
+        presets: ['@babel/preset-react'],
+        sourceMap: true,
+      }),
     ],
     external: ['react'],
   });

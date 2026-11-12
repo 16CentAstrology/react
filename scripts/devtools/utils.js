@@ -1,16 +1,19 @@
 'use strict';
 
 const chalk = require('chalk');
-const {exec} = require('child-process-promise');
+const {exec: execCallback} = require('child_process');
 const {existsSync, mkdirSync} = require('fs');
 const {readJsonSync, writeJsonSync} = require('fs-extra');
 const inquirer = require('inquirer');
 const {join} = require('path');
 const createLogger = require('progress-estimator');
+const {promisify} = require('util');
 const {
   BUILD_METADATA_TEMP_DIRECTORY,
   NPM_PACKAGES,
 } = require('./configuration');
+
+const exec = promisify(execCallback);
 
 const logger = createLogger({
   storagePath: join(__dirname, '.progress-estimator'),
@@ -101,19 +104,19 @@ function readSavedBuildMetadata() {
     process.exit(1);
   }
 
-  const {archivePath, buildID} = readJsonSync(path);
+  const {archivePath, currentCommitHash} = readJsonSync(path);
 
-  return {archivePath, buildID};
+  return {archivePath, currentCommitHash};
 }
 
-function saveBuildMetadata({archivePath, buildID}) {
+function saveBuildMetadata({archivePath, currentCommitHash}) {
   const path = join(BUILD_METADATA_TEMP_DIRECTORY, 'metadata');
 
   if (!existsSync(BUILD_METADATA_TEMP_DIRECTORY)) {
     mkdirSync(BUILD_METADATA_TEMP_DIRECTORY);
   }
 
-  writeJsonSync(path, {archivePath, buildID}, {spaces: 2});
+  writeJsonSync(path, {archivePath, currentCommitHash}, {spaces: 2});
 }
 
 module.exports = {
